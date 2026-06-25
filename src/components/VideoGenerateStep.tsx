@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { Film, Sparkles, RefreshCw, Save, ArrowLeft, Plus, CheckCircle, ArrowRight, Hourglass, AlertTriangle, RotateCw } from "lucide-react";
 import { VideoClip } from "../types";
-import { createVideoTaskApi, pollVideoStatusApi } from "../utils/api";
+import { createVideoTaskApi, subscribeVideoProgress } from "../utils/api";
 import { ToastItem, createToast } from "./Toast";
 
 interface VideoGenerateStepProps {
@@ -36,6 +36,73 @@ export default function VideoGenerateStep({
   const [subtitleText, setSubtitleText] = useState(activeClip.subtitle || "");
   const [isPolling, setIsPolling] = useState(false);
   const activeJobId = activeClip.videoTaskId || null;
+  const wsRef = useRef<WebSocket | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.close();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (activeClip.videoTaskStatus === "polling" && activeClip.videoTaskId && !activeClip.videoUrl) {
+      connectWebSocket(activeClip.videoTaskId);
+    }
+  }, [activeClip.videoTaskId]);
+
+  const connectWebSocket = (videoId: string) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.close();
+    }
+
+    const taskId = videoId;
+    setIsGenerating(true);
+    setIsVideoLoading(true);
+    setVideoLogs(prev => prev.length > 0 ? prev : [
+      "🔄 Reconnecting to video generation...",
+      `📡 Job ID: ${videoId}`
+    ]);
+
+    const ws = subscribeVideoProgress(
+      videoId,
+      apiKey,
+      taskId,
+      (msg) => {
+        setPollStatus(msg.message || "");
+        setVideoLogs(prev => {
+          const newLog = msg.message || "";
+          if (!newLog || prev[prev.length - 1] === newLog) return prev;
+          return [...prev, newLog];
+        });
+      },
+      (url) => {
+        const cacheBustedUrl = `${url}${url.includes("?") ? "&" : "?"}t=${Date.now()}`;
+        onUpdateClip({
+          videoUrl: cacheBustedUrl,
+          subtitle: subtitleText,
+          videoTaskStatus: "completed",
+        });
+        setPollStatus("Success");
+        setVideoLogs(prev => [...prev, "✅ Video rendering completed successfully!", "🎉 Cinematic motion clip synchronized."]);
+        setIsGenerating(false);
+        setIsVideoLoading(false);
+        if (onToast) onToast(createToast("success", "Video generated successfully!"));
+      },
+      (errMsg) => {
+        setError(errMsg);
+        setVideoLogs(prev => [...prev, `❌ Error: ${errMsg}`, "⚠️ Render pipeline aborted."]);
+        setPollStatus("");
+        setIsGenerating(false);
+        setIsVideoLoading(false);
+        onUpdateClip({ videoTaskStatus: "failed" });
+        if (onToast) onToast(createToast("error", `Video generation failed: ${errMsg}`));
+      }
+    );
+
+    wsRef.current = ws;
+  };
 
   const handleGenerateVideo = async () => {
     setIsGenerating(true);
@@ -49,7 +116,6 @@ export default function VideoGenerateStep({
     ]);
 
     try {
-      // Step A: Create task
       const { video_id, task_id } = await createVideoTaskApi(
         apiKey,
         activeClip.videoPrompt,
@@ -57,83 +123,34 @@ export default function VideoGenerateStep({
       );
 
       const resolvedJobId = video_id || task_id || "VID-" + Math.random().toString(36).substr(2, 9).toUpperCase();
-      onUpdateClip({ videoTaskId: resolvedJobId });
+      onUpdateClip({ videoTaskId: resolvedJobId, videoTaskStatus: "polling" });
       setVideoLogs(prev => [
         ...prev,
         `✓ Reference keyframe validated successfully.`,
         `📡 Dispatched Agnes Job ID: ${resolvedJobId}`,
         "⚙️ Bootstrapping Agnes video interpolation engine..."
       ]);
-      setPollStatus("Video task created. Polling neural engine...");
-      
-      // Step B: Poll status
-      const completedVideoUrl = await pollVideoStatusApi(apiKey, video_id, task_id, (msg) => {
-        setPollStatus(msg);
-        setVideoLogs(prev => {
-          if (prev[prev.length - 1] === msg) return prev;
-          return [...prev, msg];
-        });
-      });
-      
-      // Append a cache-buster query parameter to force the browser to reload the video file and bypass caches
-      const cacheBustedUrl = completedVideoUrl ? `${completedVideoUrl}${completedVideoUrl.includes("?") ? "&" : "?"}t=${Date.now()}` : "";
+      setPollStatus("Video task created. Connecting via WebSocket...");
 
-      onUpdateClip({
-        videoUrl: cacheBustedUrl,
-        subtitle: subtitleText,
-      });
-      setPollStatus("Success");
-      setVideoLogs(prev => [...prev, "✅ Video rendering completed successfully!", "🎉 Cinematic motion clip synchronized."]);
-      if (onToast) {
-        onToast(createToast("success", "Video generated successfully!"));
-      }
+      connectWebSocket(resolvedJobId);
     } catch (err: any) {
       const errMsg = err.message || "An error occurred during video creation.";
       setError(errMsg);
       setVideoLogs(prev => [...prev, `❌ Error: ${errMsg}`, "⚠️ Render pipeline aborted."]);
       setPollStatus("");
       setIsVideoLoading(false);
-      if (onToast) {
-        onToast(createToast("error", `Video generation failed: ${errMsg}`));
-      }
-    } finally {
       setIsGenerating(false);
+      onUpdateClip({ videoTaskStatus: "failed" });
+      if (onToast) onToast(createToast("error", `Video generation failed: ${errMsg}`));
     }
   };
 
-  const handleManualPoll = async () => {
+  const handleManualPoll = () => {
     if (!activeClip.videoTaskId) return;
     setIsPolling(true);
-    setVideoLogs(prev => [...prev, "🔄 Manual refresh triggered..."]);
-    try {
-      const completedVideoUrl = await pollVideoStatusApi(apiKey, undefined, activeClip.videoTaskId, (msg) => {
-        setPollStatus(msg);
-        setVideoLogs(prev => {
-          if (prev[prev.length - 1] === msg) return prev;
-          return [...prev, msg];
-        });
-      });
-      const cacheBustedUrl = completedVideoUrl ? `${completedVideoUrl}${completedVideoUrl.includes("?") ? "&" : "?"}t=${Date.now()}` : "";
-      onUpdateClip({
-        videoUrl: cacheBustedUrl,
-        subtitle: subtitleText,
-      });
-      setPollStatus("Success");
-      setVideoLogs(prev => [...prev, "✅ Video rendering completed successfully!", "🎉 Cinematic motion clip synchronized."]);
-      if (onToast) {
-        onToast(createToast("success", "Video generated successfully!"));
-      }
-    } catch (err: any) {
-      const errMsg = err.message || "An error occurred while checking status.";
-      setError(errMsg);
-      setVideoLogs(prev => [...prev, `❌ Error: ${errMsg}`]);
-      if (onToast) {
-        onToast(createToast("error", `Status check failed: ${errMsg}`));
-      }
-    } finally {
-      setIsPolling(false);
-      setIsGenerating(false);
-    }
+    setVideoLogs(prev => [...prev, "🔄 Manual WebSocket reconnect triggered..."]);
+    connectWebSocket(activeClip.videoTaskId);
+    setIsPolling(false);
   };
 
   const handleSaveClip = () => {

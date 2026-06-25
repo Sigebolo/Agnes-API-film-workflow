@@ -4,12 +4,14 @@
  */
 
 import { VideoClip } from "../types";
+import { rateLimiter } from "./rateLimiter";
 
 export async function optimizePromptApi(
   apiKey: string,
   userPrompt: string,
   mode: "image" | "video"
 ): Promise<string> {
+  await rateLimiter.acquire();
   const response = await fetch("/api/proxy/chat", {
     method: "POST",
     headers: {
@@ -83,6 +85,7 @@ export async function generateImageApi(
   image?: string,
   strength?: number
 ): Promise<string> {
+  await rateLimiter.acquire();
   const body: Record<string, any> = {
     model: "agnes-image-2.1-flash",
     prompt,
@@ -123,6 +126,7 @@ export async function generateCharacterSheetApi(
   description: string,
   style: string = "character turnaround sheet, multiple views, consistent design, reference sheet"
 ): Promise<string> {
+  await rateLimiter.acquire();
   const prompt = `masterpiece, best quality, ultra-detailed, 8k UHD, character turnaround reference sheet, ${style}, ${description}, front view, side view, back view, three-quarter view, full body, neutral pose, white background, clean design, consistent character across all views`;
 
   const response = await fetch("/api/proxy/images", {
@@ -157,6 +161,7 @@ export async function generateCharacterViewApi(
   viewAngle: string,
   referenceImageUrl?: string
 ): Promise<string> {
+  await rateLimiter.acquire();
   const anglePrompts: Record<string, string> = {
     front: "front view, facing camera, neutral expression, full body",
     side: "side profile view, facing right, neutral expression, full body",
@@ -205,6 +210,7 @@ export async function createVideoTaskApi(
   prompt: string,
   imageUrl?: string
 ): Promise<{ video_id?: string; task_id?: string }> {
+  await rateLimiter.acquire();
   const body: Record<string, any> = {
     model: "agnes-video-v2.0",
     prompt,
@@ -274,6 +280,7 @@ export async function pollVideoStatusApi(
       }
     }
 
+    await rateLimiter.acquire();
     const response = await fetch(`/api/proxy/status?${queryParams}`, {
       headers: {
         "Authorization": `Bearer ${apiKey}`,
@@ -327,4 +334,51 @@ export async function mergeClipsApi(
   }
 
   return response.json();
+}
+
+export interface VideoProgressMessage {
+  type: "progress" | "done" | "error" | "subscribed";
+  taskId: string;
+  step?: string;
+  status?: string;
+  message?: string;
+  progress?: number;
+  url?: string;
+  videoId?: string;
+}
+
+export function subscribeVideoProgress(
+  videoId: string,
+  apiKey: string,
+  taskId: string,
+  onProgress: (msg: VideoProgressMessage) => void,
+  onDone: (url: string) => void,
+  onError: (message: string) => void
+): WebSocket {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const wsUrl = `${protocol}//${window.location.host}/ws?taskId=${encodeURIComponent(taskId)}`;
+  const ws = new WebSocket(wsUrl);
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ type: "subscribe", videoId, apiKey }));
+  };
+
+  ws.onmessage = (event) => {
+    try {
+      const msg: VideoProgressMessage = JSON.parse(event.data);
+      if (msg.type === "done" && msg.url) {
+        onDone(msg.url);
+      } else if (msg.type === "error") {
+        onError(msg.message || "Unknown error");
+      } else {
+        onProgress(msg);
+      }
+    } catch {}
+  };
+
+  ws.onerror = () => {
+    onError("WebSocket connection error");
+  };
+
+  return ws;
 }

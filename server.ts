@@ -6,7 +6,9 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import http from "http";
 import { exec } from "child_process";
+import { WebSocketServer, WebSocket } from "ws";
 import { createServer as createViteServer } from "vite";
 const app = express();
 const PORT = 3000;
@@ -868,7 +870,78 @@ app.post("/api/merge", async (req, res) => {
 });
 
 // ==========================================
-// 4. VITE MIDDLEWARE & STATIC SERVING
+// 4. WEBSOCKET VIDEO PROGRESS
+// ==========================================
+
+const videoProgressClients = new Map<string, Set<WebSocket>>();
+
+async function pollAgnesVideoStatus(
+  videoId: string,
+  apiKey: string,
+  ws: WebSocket,
+  taskId: string
+): Promise<void> {
+  const delays = [5000, 10000, 15000, 20000, 30000, 45000, 60000];
+  const maxAttempts = 35;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (ws.readyState !== WebSocket.OPEN) return;
+
+    if (attempt > 0) {
+      const delay = delays[Math.min(attempt - 1, delays.length - 1)];
+      await new Promise((r) => setTimeout(r, delay));
+    }
+
+    if (ws.readyState !== WebSocket.OPEN) return;
+
+    try {
+      const targetUrl = `https://platform.agnes-ai.com/agnesapi?video_id=${videoId}`;
+      const response = await fetch(targetUrl, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(8000),
+      });
+
+      if (!response.ok) continue;
+
+      const data = await response.json();
+      const status = data.status?.toLowerCase();
+      const progress = data.progress || 0;
+
+      ws.send(JSON.stringify({
+        type: "progress",
+        taskId,
+        step: "video",
+        status: status || "pending",
+        message: `Video status: ${status || "pending"}...`,
+        progress,
+      }));
+
+      if (status === "completed" || status === "success") {
+        const videoUrl = data.urls?.[0] || data.video_url || data.url || data.remixed_from_video_id;
+        if (videoUrl) {
+          ws.send(JSON.stringify({ type: "done", taskId, url: videoUrl }));
+        } else {
+          ws.send(JSON.stringify({ type: "error", taskId, message: "No URL in completed response" }));
+        }
+        return;
+      }
+
+      if (status === "failed") {
+        ws.send(JSON.stringify({ type: "error", taskId, message: data.error || "Video generation failed" }));
+        return;
+      }
+    } catch (err: any) {
+      if (err.name === "TimeoutError") continue;
+    }
+  }
+
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "error", taskId, message: "Polling timeout" }));
+  }
+}
+
+// ==========================================
+// 5. VITE MIDDLEWARE & STATIC SERVING
 // ==========================================
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
@@ -885,7 +958,43 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const httpServer = http.createServer(app);
+  const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+
+  wss.on("connection", (ws, req) => {
+    const url = new URL(req.url || "/", `http://localhost:${PORT}`);
+    const taskId = url.searchParams.get("taskId") || url.pathname.split("/").pop() || "";
+
+    if (!taskId) {
+      ws.close(1008, "Missing taskId");
+      return;
+    }
+
+    if (!videoProgressClients.has(taskId)) {
+      videoProgressClients.set(taskId, new Set());
+    }
+    videoProgressClients.get(taskId)!.add(ws);
+
+    ws.on("close", () => {
+      const clients = videoProgressClients.get(taskId);
+      if (clients) {
+        clients.delete(ws);
+        if (clients.size === 0) videoProgressClients.delete(taskId);
+      }
+    });
+
+    ws.on("message", (msg) => {
+      try {
+        const data = JSON.parse(msg.toString());
+        if (data.type === "subscribe" && data.videoId && data.apiKey) {
+          ws.send(JSON.stringify({ type: "subscribed", taskId, videoId: data.videoId }));
+          pollAgnesVideoStatus(data.videoId, data.apiKey, ws, taskId);
+        }
+      } catch {}
+    });
+  });
+
+  httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }

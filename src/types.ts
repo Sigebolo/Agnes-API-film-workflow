@@ -26,8 +26,12 @@ export interface VideoClip {
   voiceoverUrl?: string;
   imageTaskId?: string;
   videoTaskId?: string;
+  imageTaskStatus?: TaskStatus;
+  videoTaskStatus?: TaskStatus;
   useCharacterAnchor?: boolean;
 }
+
+export type TaskStatus = 'idle' | 'generating' | 'polling' | 'completed' | 'failed';
 
 export type AppStep = 'prompt' | 'character' | 'image' | 'video' | 'timeline';
 

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Sparkles, Image as ImageIcon, Film, Layers, CheckCircle2, AlertCircle, User } from "lucide-react";
 import { VideoClip, AppStep, WorkflowState, CharacterAnchor } from "./types";
@@ -14,41 +14,64 @@ import ImageGenerateStep from "./components/ImageGenerateStep";
 import VideoGenerateStep from "./components/VideoGenerateStep";
 import Timeline from "./components/Timeline";
 import { ToastContainer, ToastItem, createToast } from "./components/Toast";
+import { loadWorkflow, saveWorkflow } from "./utils/storage";
 
 const LOCAL_STORAGE_KEY_API = "agnes_api_key_v2";
 
+const defaultClip: VideoClip = {
+  id: "clip_initial_1",
+  imagePrompt: "A majestic red-haired astronaut standing on the edge of a colossal red Martian canyon, looking at a twin sunset, cinematic realism, dramatic volumetric lighting, ultra-detailed 8k",
+  videoPrompt: "Slow cinematic pan-right, camera tracking the astronaut's gaze towards the twin sunset, subtle dust particles floating in air",
+  subtitle: "We have finally established our first colony on the red planet.",
+  imageUrl: "https://images.unsplash.com/photo-1614728263952-84ea256f9679?auto=format&fit=crop&q=80&w=800"
+};
+
+const defaultState: WorkflowState = {
+  apiKey: "demo-key-agnes",
+  clips: [defaultClip],
+  activeClipId: defaultClip.id,
+  currentStep: "prompt",
+  characterAnchor: null,
+  mergedVideoUrl: null,
+  mergedSubtitlesUrl: null,
+  mergedVoiceoverUrl: null,
+  isMerging: false,
+};
+
+function getInitialState(): WorkflowState {
+  if (typeof window === "undefined") return defaultState;
+
+  const saved = loadWorkflow();
+  if (saved && saved.clips && saved.clips.length > 0) {
+    return { ...defaultState, ...saved };
+  }
+
+  let savedKey = "";
+  try { savedKey = localStorage.getItem(LOCAL_STORAGE_KEY_API) || ""; } catch {}
+  if (savedKey) {
+    return { ...defaultState, apiKey: savedKey };
+  }
+  return defaultState;
+}
+
 export default function App() {
-  const [state, setState] = useState<WorkflowState>(() => {
-    // Attempt to load saved key from localStorage
-    let savedKey = "";
-    if (typeof window !== "undefined") {
-      savedKey = localStorage.getItem(LOCAL_STORAGE_KEY_API) || "";
-    }
+  const [state, setState] = useState<WorkflowState>(getInitialState);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const defaultClip: VideoClip = {
-      id: "clip_initial_1",
-      imagePrompt: "A majestic red-haired astronaut standing on the edge of a colossal red Martian canyon, looking at a twin sunset, cinematic realism, dramatic volumetric lighting, ultra-detailed 8k",
-      videoPrompt: "Slow cinematic pan-right, camera tracking the astronaut's gaze towards the twin sunset, subtle dust particles floating in air",
-      subtitle: "We have finally established our first colony on the red planet.",
-      imageUrl: "https://images.unsplash.com/photo-1614728263952-84ea256f9679?auto=format&fit=crop&q=80&w=800"
-    };
-
-    return {
-      apiKey: savedKey || "demo-key-agnes",
-      clips: [defaultClip],
-      activeClipId: defaultClip.id,
-      currentStep: "prompt",
-      characterAnchor: null,
-      mergedVideoUrl: null,
-      mergedSubtitlesUrl: null,
-      mergedVoiceoverUrl: null,
-      isMerging: false,
-    };
-  });
-
-  // Save key to local storage when changed
+  // Save workflow to localStorage (debounced 500ms)
   useEffect(() => {
-    localStorage.setItem(LOCAL_STORAGE_KEY_API, state.apiKey);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      saveWorkflow(state);
+    }, 500);
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [state]);
+
+  // Save legacy API key for backward compatibility
+  useEffect(() => {
+    try { localStorage.setItem(LOCAL_STORAGE_KEY_API, state.apiKey); } catch {}
   }, [state.apiKey]);
 
   // Toast state

@@ -1,3 +1,20 @@
+🎨 Visual Identity & Styling
+Cosmic Obsidian Theme: Features a high-contrast dark aesthetic with deep grays (#09090A to #1A1A1D) paired with vivid warm amber, orange, and gold accents (from-orange-600 to-red-600) designed for creative professionals.
+Micro-animations & Spacing: Implements subtle transition animations, pulsating indicators for active synthesis states, and generous negative space to minimize visual clutter.
+🏗️ Full-Stack System Architecture
+Secured Express Proxy: Bridges client-side React requests with the Agnes AI platform securely. By processing authentication headers server-side, it keeps API keys hidden from client-side network inspectors.
+Intelligent Neural Simulators: Seamlessly falls back to simulated networks and mock models when API credentials are omitted, allowing developers to safely run, debug, and prototype layouts locally.
+🚀 Core Functional Modules
+Prompt Optimization Editor: Enhances simple descriptions into high-fidelity cinematic prompts with style selection nodes (e.g., Sci-Fi, Gothic, Cyberpunk).
+Text-to-Image & Image-to-Image (图生图):
+Supports using the Current Scene Image or a custom URL as a reference asset.
+Controls prompt weight guidance via an interactive Strength slider (0.1 for maximum layout retention, 0.9 for maximum creative divergence).
+Keeps users informed with Live Terminal Logging Panels, customized full-screen error alerts, aborted pipeline statuses, and one-click retries.
+Video Motion Synthesis: Interpolates keyframe sequences into fluid animations, utilizing a robust exponential backoff polling mechanism.
+Timeline & Cinematic Composition: Integrates synthetic voiceovers and subtitles into a cohesive playhead tracking preview.
+
+
+
 I am free when below API is free:
 Have fun。
 

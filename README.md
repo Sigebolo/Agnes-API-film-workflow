@@ -1,677 +1,364 @@
-🎨 Visual Identity & Styling
-Cosmic Obsidian Theme: Features a high-contrast dark aesthetic with deep grays (#09090A to #1A1A1D) paired with vivid warm amber, orange, and gold accents (from-orange-600 to-red-600) designed for creative professionals.
-Micro-animations & Spacing: Implements subtle transition animations, pulsating indicators for active synthesis states, and generous negative space to minimize visual clutter.
-🏗️ Full-Stack System Architecture
-Secured Express Proxy: Bridges client-side React requests with the Agnes AI platform securely. By processing authentication headers server-side, it keeps API keys hidden from client-side network inspectors.
-Intelligent Neural Simulators: Seamlessly falls back to simulated networks and mock models when API credentials are omitted, allowing developers to safely run, debug, and prototype layouts locally.
-🚀 Core Functional Modules
-Prompt Optimization Editor: Enhances simple descriptions into high-fidelity cinematic prompts with style selection nodes (e.g., Sci-Fi, Gothic, Cyberpunk).
-Text-to-Image & Image-to-Image (图生图):
-Supports using the Current Scene Image or a custom URL as a reference asset.
-Controls prompt weight guidance via an interactive Strength slider (0.1 for maximum layout retention, 0.9 for maximum creative divergence).
-Keeps users informed with Live Terminal Logging Panels, customized full-screen error alerts, aborted pipeline statuses, and one-click retries.
-Video Motion Synthesis: Interpolates keyframe sequences into fluid animations, utilizing a robust exponential backoff polling mechanism.
-Timeline & Cinematic Composition: Integrates synthetic voiceovers and subtitles into a cohesive playhead tracking preview.
+# 🎬 Agnes Film Workflow
 
+一个功能完整的网页端应用，用于使用 **Agnes AI API** 生成长视频。支持从文本到视频的全流程创意生成、编辑和合成。
 
-
-I am free when below API is free:
-Have fun。
-
-# Agnes Image 2.1 Flash
-
-
-## Model Overview
-
-
-**Agnes Image 2.1 Flash** is an upgraded image generation model by Sapiens AI, supporting both **text-to-image** and **image-to-image** workflows.
-
-
-Compared with previous versions, Agnes Image 2.1 Flash provides improved performance for **high-information-density images**, making it more suitable for scenarios that require complex visual details, richer composition, and clearer semantic alignment.
-
-
-Agnes Image 2.1 Flash can be used to generate images from text prompts, transform existing images, preserve original composition during editing, and return results either as image URLs or Base64 data.
-
+> **免费使用**: 当 Agnes API 免费时，尽情享受这个工具吧！
 
 ---
 
+## ✨ 核心特性
 
-# Key Capabilities
+### 🎨 视觉设计与主题
+- **宇宙黑暗主题**: 高对比度深色美学设计
+  - 深灰色背景 (`#09090A` 到 `#1A1A1D`)
+  - 鲜艳温暖的琥珀、橙色和金色强调色 (`from-orange-600 to-red-600`)
+- **微动画 & 间距**: 
+  - 精细的过渡动画
+  - 合成状态脉冲指示器
+  - 大量负空间，最小化视觉混乱
 
+### 🏗️ 全栈系统架构
 
-| Capability                                  | Description                                                                               |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Text-to-Image                               | Generate high-quality images from natural language prompts                                |
-| Image-to-Image                              | Transform or refine existing images based on prompt instructions                          |
-| High-Information-Density Image Optimization | Improved handling of images with rich details, complex layouts, and dense visual elements |
-| Composition Preservation                    | Preserve the original composition when editing or transforming input images               |
-| Flexible Size Control                       | Supports custom output sizes such as 1024x768                                             |
-| URL Response                                | Return generated image results as accessible image URLs                                   |
-| Base64 Response                             | Return generated image results as Base64 data when required                               |
-| URL or Data URI Input                       | Image-to-image supports public image URLs or Data URI Base64 input                        |
+#### 🔐 安全的 Express 代理
+- 在服务器端处理身份验证头，保护 API 密钥安全
+- 桥接客户端 React 请求与 Agnes AI 平台
+- 防止 API 密钥在客户端网络请求中暴露
 
+#### 🤖 智能神经网络模拟器
+- 当省略 API 凭证时无缝回退到模拟网络和模型
+- 允许开发者在本地安全地运行、调试和原型设计
+- 完整的开发和测试支持
 
----
+### 🚀 核心功能模块
 
+#### 📝 提示词优化编辑器
+- 将简单描述增强为高保真电影提示词
+- 风格选择节点支持：Sci-Fi（科幻）、Gothic（哥特）、Cyberpunk（赛博朋克）等
 
-# Applicable Scenarios
+#### 🖼️ 文本转图像 & 图像转图像（图生图）
+- 支持使用当前场景图像或自定义 URL 作为参考资源
+- 交互式强度滑块控制提示权重引导
+  - `0.1` = 最大布局保留
+  - `0.9` = 最大创意发散
+- 实时终端日志面板显示进度
+- 自定义全屏错误提示
+- 管道中止状态监控
+- 一键重试功能
 
+#### 🎬 视频动作合成
+- 将关键帧序列插值成流畅动画
+- 鲁棒的指数退避轮询机制
+- 支持长视频生成和处理
 
-Agnes Image 2.1 Flash is suitable for:
-
-
-| Scenario                       | Example Use Cases                                            |
-| ------------------------------ | ------------------------------------------------------------ |
-| Creative Design                | Concept art, visual exploration, poster drafts               |
-| Marketing Content              | Campaign images, product visuals, social media creatives     |
-| High-Density Visual Generation | Detailed scenes, rich compositions, complex environments     |
-| Image Transformation           | Style transfer, scene re-lighting, background transformation |
-| Content Production             | App assets, thumbnails, banners, storytelling visuals        |
-| Product Visualization          | Product photos, mockups, commercial visuals                  |
-| Social Media Assets            | Covers, banners, thumbnails, post images                     |
-
-
----
-
-
-# API Information
-
-
-## Base URL
-
-
-```plain text
-https://apihub.agnes-ai.com
-```
-
-
-## Endpoint
-
-
-| Item                  | Description                                       |
-| --------------------- | ------------------------------------------------- |
-| API Endpoint          | https://apihub.agnes-ai.com/v1/images/generations |
-| Request Method        | POST                                              |
-| Content-Type          | application/json                                  |
-| Authentication        | Bearer Token                                      |
-| Authentication Header | Authorization: Bearer YOUR_API_KEY                |
-
+#### ⏱️ 时间轴 & 电影构图
+- 集成合成配音和字幕
+- 一致的播放头跟踪预览
+- 完整的视频编辑和预览工具
 
 ---
 
+## 🏁 快速开始
 
-# Model
+### 前置要求
+- Node.js 18+
+- Agnes AI API 密钥（可选，支持本地模拟模式）
 
-
-Use the following model name for both text-to-image and image-to-image workflows:
-
-
-```plain text
-agnes-image-2.1-flash
-```
-
-
----
-
-
-# Important Notes
-
-- Use `agnes-image-2.1-flash` as the model name.
-- For text-to-image generation, `model`, `prompt`, and `size` are required.
-- For image-to-image generation, provide the input image URL or Data URI Base64 in the top-level `image` array.
-- Do not put `response_format` at the top level of the request body.
-- If you need URL output, put `"response_format": "url"` inside `extra_body`.
-- If you need Base64 output for text-to-image, you can use the top-level parameter `"return_base64": true`.
-- For image-to-image Base64 output, use `"response_format": "b64_json"` inside `extra_body`.
-- You do not need to pass `tags: ["img2img"]` for image-to-image requests.
-- Do not expose temporary API keys in public documentation. Use `YOUR_API_KEY` in all public examples.
-
----
-
-
-# Request Parameters
-
-
-| Parameter                  | Type     | Required                    | Description                                                      |
-| -------------------------- | -------- | --------------------------- | ---------------------------------------------------------------- |
-| model                      | string   | Yes                         | Model name. Use agnes-image-2.1-flash                            |
-| prompt                     | string   | Yes                         | Text instruction for image generation or image editing           |
-| size                       | string   | Yes                         | Output image size, such as 1024x768                              |
-| image                      | string[] | Required for image-to-image | Input image array. Supports public image URLs or Data URI Base64 |
-| return_base64              | boolean  | No                          | Used when text-to-image output should be returned as Base64      |
-| extra_body                 | object   | No                          | Additional parameters for advanced workflows                     |
-| extra_body.response_format | string   | No                          | Output format. Common values: url, b64_json                      |
-
-
----
-
-
-# Call Examples
-
-
-## 1. Text-to-Image Request with URL Output
-
-
-Use this request to generate an image from a text prompt and return the result as an image URL.
-
+### 安装
 
 ```bash
-curl https://apihub.agnes-ai.com/v1/images/generations \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "agnes-image-2.1-flash",
-    "prompt": "A luminous floating city above a misty canyon at sunrise, cinematic realism",
-    "size": "1024x768",
-    "extra_body": {
-      "response_format": "url"
-    }
-  }'
+git clone https://github.com/Sigebolo/Agnes-API-film-workflow.git
+cd Agnes-API-film-workflow
+npm install
 ```
 
-
-The generated image URL is returned in:
-
-
-```plain text
-data[0].url
-```
-
-
----
-
-
-## 2. Text-to-Image Request with Base64 Output
-
-
-Use this request when you want the generated image returned as Base64 data.
-
+### 开发模式
 
 ```bash
-curl https://apihub.agnes-ai.com/v1/images/generations \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "agnes-image-2.1-flash",
-    "prompt": "A clean product photo of a glass cube on a white studio background, soft shadows, high detail",
-    "size": "1024x768",
-    "return_base64": true
-  }'
+npm run dev
 ```
 
+访问 `http://localhost:3000` 即可开始使用
 
-The generated Base64 image is returned in:
-
-
-```plain text
-data[0].b64_json
-```
-
-
----
-
-
-## 3. Image-to-Image Request with URL Input and URL Output
-
-
-Use this request to transform an existing image while preserving the original composition.
-
+### 生产构建
 
 ```bash
-curl https://apihub.agnes-ai.com/v1/images/generations \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "agnes-image-2.1-flash",
-    "prompt": "Transform the scene into a rain-soaked cyberpunk night with neon reflections while preserving the original composition",
-    "size": "1024x768",
-    "extra_body": {
-	     "image": [
-      "https://example.com/input-image.png"
-    ],
-      "response_format": "url"
-    }
-  }'
+npm run build
+npm run start
 ```
-
-
-The generated image URL is returned in:
-
-
-```plain text
-data[0].url
-```
-
 
 ---
 
+## 🔑 配置 API 密钥
 
-## 4. Image-to-Image Request with URL Input and Base64 Output
-
-
-Use this request when the input image is provided as a public URL and the generated result should be returned as Base64 data.
-
-
-```bash
-curl https://apihub.agnes-ai.com/v1/images/generations \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "agnes-image-2.1-flash",
-    "prompt": "Make the object orange while preserving the original composition",
-    "size": "1024x768",
-    "extra_body": {
-	    "image": [
-      "https://example.com/input-image.png"
-    ],
-      "response_format": "b64_json"
-    }
-  }'
+### 方式一：环境变量
+创建 `.env.local` 文件：
+```
+AGNES_API_KEY=your_api_key_here
 ```
 
+### 方式二：在应用中配置
+在应用设置界面输入 API 密钥，支持临时使用而无需保存。
 
-The generated Base64 image is returned in:
-
-
-```plain text
-data[0].b64_json
-```
-
+### 本地模拟模式
+不配置 API 密钥时，应用将自动使用模拟网络进行演示和开发。
 
 ---
 
+## 📚 使用指南
 
-## 5. Image-to-Image Request with Data URI Base64 Input
+### 1️⃣ 创建视频项目
 
+1. 点击"新建项目"按钮
+2. 输入项目名称和描述
+3. 选择视频风格和参数
 
-Image-to-image also supports Data URI Base64 input.
+### 2️⃣ 生成场景图像
 
+- 在提示词编辑器中描述场景
+- 选择风格预设或自定义风格
+- 调整强度参数控制创意程度
+- 点击"生成"获得第一帧
 
-Data URI format:
+### 3️⃣ 图像到图像变换
 
+- 上传或选择现有图像作为参考
+- 编辑提示词描述所需变化
+- 使用强度滑块平衡保留与创意
+- 生成变化版本用于动画
 
-```plain text
-data:image/png;base64,BASE64_HERE
-```
+### 4️⃣ 视频合成
 
+- 添加关键帧建立序列
+- 设置每帧之间的过渡
+- 插值生成流畅动画
+- 查看实时预览
 
-Request example:
+### 5️⃣ 音频与字幕
 
-
-```bash
-curl https://apihub.agnes-ai.com/v1/images/generations \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "agnes-image-2.1-flash",
-    "prompt": "Make the object matte black while preserving the original composition",
-    "size": "1024x768",
-    "extra_body": {
-	     "image": [
-      "data:image/png;base64,BASE64_HERE"
-    ],
-      "response_format": "b64_json"
-    }
-  }'
-```
-
-
----
-
-
-# Response Format
-
-
-## URL Output
-
-
-When `extra_body.response_format` is set to `url`, the response format is:
-
-
-```json
-{
-  "created": 1780000000,
-  "data": [
-    {
-      "url": "https://storage.googleapis.com/agnes-aigc/xxx.png",
-      "b64_json": null,
-      "revised_prompt": null
-    }
-  ]
-}
-```
-
-
-Generated image URL:
-
-
-```plain text
-data[0].url
-```
-
+- 添加合成配音
+- 生成或编辑字幕
+- 调整时序同步
+- 导出最终视频
 
 ---
 
+## 🎯 工作流示例
 
-## Base64 Output
+### 场景一：创意视频制作
 
-
-When Base64 output is enabled, the response format is:
-
-
-```json
-{
-  "created": 1780000000,
-  "data": [
-    {
-      "url": null,
-      "b64_json": "iVBORw0KGgoAAAANSUhEUgAA...",
-      "revised_prompt": null
-    }
-  ]
-}
+```
+1. 编写电影级提示词
+   "浮动城市在日出时悬停在雾霭峡谷上方，电影般的写实风格"
+   
+2. 生成初始图像
+   调整参数直到满意
+   
+3. 创建变化版本
+   "转换为雨夜赛博朋克场景，保留原始构图"
+   
+4. 建立关键帧
+   选择多个生成的图像作为关键点
+   
+5. 生成动画
+   系统插值生成流畅过渡
+   
+6. 添加音效
+   选择合成配音和音乐
+   
+7. 导出视频
+   最终的高质量长视频
 ```
 
+### 场景二：产品演示视频
 
-Generated Base64 image:
-
-
-```plain text
-data[0].b64_json
 ```
-
+1. 上传产品照片
+2. 生成多个角度视图
+3. 创建 360 度旋转动画
+4. 添加产品信息字幕
+5. 导出宣传视频
+```
 
 ---
 
+## 📊 技术栈
 
-# Recommended Prompt Structure
+### 前端
+- **React** - UI 框架
+- **TypeScript** - 类型安全
+- **Tailwind CSS** - 样式设计
+- **Next.js** - 应用框架
 
+### 后端
+- **Express.js** - Web 服务器
+- **Node.js** - 运行环境
 
-For better image generation results, use a clear prompt structure:
-
-
-```plain text
-[Subject] + [Scene / Environment] + [Style] + [Lighting] + [Composition] + [Quality Requirements]
-```
-
-
-## Example
-
-
-```plain text
-A luminous floating city above a misty canyon at sunrise, cinematic realism, wide-angle composition, rich architectural details, soft golden light, high visual density
-```
-
-
-For image-to-image tasks, clearly describe what should change and what should remain unchanged.
-
-
-```plain text
-Transform the scene into a rain-soaked cyberpunk night with neon reflections while preserving the original composition and main subject layout.
-```
-
+### 集成
+- **Agnes AI API** - 图像生成引擎
+- **FFmpeg** - 视频处理
+- **Web Audio API** - 音频处理
 
 ---
 
+## 🔧 高级配置
 
-# Best Practices
+### 自定义 API 端点
 
-
-## For Text-to-Image
-
-
-Use detailed prompts when generating complex images. Include subject, environment, style, lighting, camera angle, and desired level of detail.
-
-
-Good example:
-
-
-```plain text
-A futuristic city marketplace filled with flying vehicles, holographic signs, dense crowds, neon lighting, cinematic realism, ultra-detailed, high-information-density composition
+编辑 `.env.local`:
+```
+AGNES_API_ENDPOINT=https://your-custom-endpoint.com
 ```
 
+### 调整超时设置
 
-Recommended elements:
+在应用配置中修改：
+- 图像生成超时：60-360 秒
+- 视频处理超时：自定义
 
-- Main subject
-- Scene or environment
-- Visual style
-- Lighting
-- Camera angle
-- Composition
-- Detail level
-- Quality requirements
+### 本地代理配置
+
+Express 代理已优化以处理：
+- 大型文件上传
+- 长时间运行的请求
+- 错误恢复和重试
 
 ---
 
+## 🎁 最佳实践
 
-## For Image-to-Image
+### ✍️ 提示词编写技巧
 
-
-When editing an existing image, clearly specify both the transformation and the preservation requirements.
-
-
-Good example:
-
-
-```plain text
-Convert the image into a fantasy winter landscape, add snow, warm window lights, and a magical atmosphere, while preserving the original building structure and camera angle.
+**优秀的提示词结构**:
+```
+[主体] + [场景/环境] + [风格] + [光线] + [构图] + [质量要求]
 ```
 
-
-Recommended structure:
-
-
-```plain text
-[Change requirement] + [New style / scene] + [Elements to add or remove] + [Elements to preserve]
+**示例**:
+```
+悬浮在雾霭峡谷上方的发光城市在日出时刻，电影般的写实风格，
+广角构图，丰富的建筑细节，柔和的金色光线，高视觉密度
 ```
 
+### 🎬 视频生成建议
 
-Example:
+- 使用**3-5 个关键帧**创建流畅动画
+- 关键帧之间保持**视觉连贯性**
+- 利用**强度滑块**在保留和创意间平衡
+- 为**长视频**分段处理以提高质量
 
+### ⚡ 性能优化
 
-```plain text
-Change the daytime street scene into a cinematic cyberpunk night scene, add neon signs and wet road reflections, while preserving the original street layout, camera angle, and main building shapes.
-```
-
+- 开启**代理缓存**加速重复请求
+- 使用**低分辨率预览**快速审核
+- **分批处理**大型视频项目
+- 定期**清理临时文件**
 
 ---
 
+## 🐛 故障排除
 
-## For High-Information-Density Images
+### 问题：API 密钥无效
 
+**解决方案**:
+1. 验证密钥是否正确复制
+2. 确保密钥未过期
+3. 检查网络连接
+4. 查看应用日志获取详细错误信息
 
-Agnes Image 2.1 Flash is optimized for complex and detail-rich visuals. For best results, describe the visual hierarchy clearly.
+### 问题：图像生成超时
 
+**解决方案**:
+- 增加超时设置（60-360 秒范围）
+- 简化提示词
+- 减小输出图像尺寸
+- 检查服务器负载
 
-Recommended elements:
+### 问题：视频导出失败
 
-- Main subject
-- Background environment
-- Important secondary details
-- Style and lighting
-- Composition constraints
-- What should remain unchanged, if using image-to-image
+**解决方案**:
+- 确保有足够磁盘空间
+- 检查 FFmpeg 是否正确安装
+- 验证输入文件格式
+- 查看错误日志
 
-Good example:
+### 问题：内存不足
 
-
-```plain text
-A large fantasy harbor city built on cliffs, hundreds of small boats, layered stone bridges, glowing windows, distant mountains, cloudy sunset sky, cinematic fantasy realism, wide-angle composition, rich architectural details, high visual density
-```
-
-
----
-
-
-# Common Errors and Troubleshooting
-
-
-## 1. `response_format` at the Top Level Causes an Error
-
-
-Do not put `response_format` at the top level.
-
-
-Incorrect:
-
-
-```json
-{
-  "model": "agnes-image-2.1-flash",
-  "prompt": "A futuristic city",
-  "size": "1024x768",
-  "response_format": "url"
-}
-```
-
-
-Correct:
-
-
-```json
-{
-  "model": "agnes-image-2.1-flash",
-  "prompt": "A futuristic city",
-  "size": "1024x768",
-  "extra_body": {
-    "response_format": "url"
-  }
-}
-```
-
+**解决方案**:
+- 减少关键帧数量
+- 降低视频分辨率
+- 分批处理大项目
+- 增加系统 RAM 或使用流式处理
 
 ---
 
+## 💰 定价
 
-## 2. Image-to-Image Does Not Require `tags`
+使用 Agnes Image 2.1 Flash API：
 
+| 项目 | 价格 |
+|-----|------|
+| 生成图像 | $0.003 / 张 |
 
-Do not pass:
-
-
-```json
-{
-  "tags": ["img2img"]
-}
-```
-
-
-For image-to-image, only provide the input image in the `image` array.
-
-
-Correct:
-
-
-```json
-{
-  "model": "agnes-image-2.1-flash",
-  "prompt": "Make the object blue while preserving the original composition",
-  "size": "1024x768",
-  "extra_body": {
-    "image": [
-    "https://example.com/input.png"
-  ],
-    "response_format": "url"
-  }
-}
-```
-
+> 当 API 免费时，所有费用为 0！
 
 ---
 
+## 📖 API 文档
 
-## 3. Input Image URL Is Not Accessible
+详见项目内的 [Agnes Image 2.1 Flash 完整文档](/docs/AGNES_API.md)
 
+### 快速参考
 
-If the input image URL cannot be accessed by the server, the request may fail.
-
-
-Recommended solutions:
-
-- Use a public HTTPS image URL.
-- Make sure the image URL does not require login, cookies, or private headers.
-- Use Data URI Base64 input if the image cannot be publicly accessed.
-
----
-
-
-## 4. Request Timeout
-
-
-Image generation may take several seconds to tens of seconds depending on the prompt complexity, image size, and server load.
-
-
-Recommended client timeout:
-
-
-```plain text
-60s to 360s
+**文本转图像端点**:
+```
+POST https://apihub.agnes-ai.com/v1/images/generations
 ```
 
+**必需参数**:
+- `model`: `agnes-image-2.1-flash`
+- `prompt`: 描述文本
+- `size`: 输出尺寸（如 `1024x768`）
+
+**可选参数**:
+- `return_base64`: 返回 Base64 格式
+- `extra_body.response_format`: `url` 或 `b64_json`
 
 ---
 
+## 🤝 贡献指南
 
-## 5. Missing `image` in Image-to-Image Requests
+欢迎提交 Issue 和 Pull Request！
 
+### 开发流程
 
-For image-to-image generation, the `image` array is required.
-
-
-Incorrect:
-
-
-```json
-{
-  "model": "agnes-image-2.1-flash",
-  "prompt": "Make the image cyberpunk style",
-  "size": "1024x768"
-}
-```
-
-
-Correct:
-
-
-```json
-{
-  "model": "agnes-image-2.1-flash",
-  "prompt": "Make the image cyberpunk style while preserving the original composition",
-  "size": "1024x768",
-  "extra_body": {
-    "image": [
-    "https://example.com/input.png"
-  ],
-    "response_format": "url"
-  }
-}
-```
-
+1. Fork 项目
+2. 创建特性分支 (`git checkout -b feature/amazing-feature`)
+3. 提交更改 (`git commit -m 'Add amazing feature'`)
+4. 推送到分支 (`git push origin feature/amazing-feature`)
+5. 开启 Pull Request
 
 ---
 
+## 📄 许可证
 
-# Pricing
-
-
-| Type             | Price            |
-| ---------------- | ---------------- |
-| Generated Images | 0 $0.003 / image |
-
+本项目采用 MIT 许可证。详见 [LICENSE](LICENSE) 文件。
 
 ---
 
+## 📞 联系方式
 
-# Notes
+- 📧 Email: contact@example.com
+- 🐛 Issues: [GitHub Issues](https://github.com/Sigebolo/Agnes-API-film-workflow/issues)
+- 💬 讨论: [GitHub Discussions](https://github.com/Sigebolo/Agnes-API-film-workflow/discussions)
 
-- Use `agnes-image-2.1-flash` as the model name.
-- Use `https://apihub.agnes-ai.com/v1/images/generations` as the API endpoint.
-- For text-to-image generation, `model`, `prompt`, and `size` are required.
-- For image-to-image generation, provide the input image URL or Data URI Base64 under the top-level `image` array.
-- Use `extra_body.response_format: "url"` when you want the generated result returned as an image URL.
-- Use `return_base64: true` for text-to-image Base64 output.
-- Use `extra_body.response_format: "b64_json"` for image-to-image Base64 output.
-- Do not put `response_format` at the top level.
-- Do not pass `tags: ["img2img"]`.
-- Do not expose temporary API keys in public documentation. Use `YOUR_API_KEY` in all public examples.
+---
+
+## 🙏 致谢
+
+感谢 [Sapiens AI](https://www.sapiens-ai.com) 提供的强大 Agnes AI API
+
+---
+
+**最后更新**: 2026年6月
+
+**享受创作！** 🎬✨

@@ -1,0 +1,6 @@
+{
+  "name": "Agnes AI Video Generator",
+  "description": "An interactive workflow tool that optimizes prompts, generates images, creates videos, and merges them into a cohesive story with audio voiceover and subtitles using Agnes AI.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

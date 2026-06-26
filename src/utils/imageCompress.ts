@@ -12,8 +12,8 @@
  */
 export async function compressImage(
   imageUrl: string,
-  maxWidth: number = 1024,
-  quality: number = 0.8
+  maxWidth: number = 2048,
+  quality: number = 0.95
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -47,8 +47,7 @@ export async function compressImage(
     };
 
     img.onerror = () => {
-      // If CORS fails, return original URL
-      resolve(imageUrl);
+      reject(new Error("CORS or network error loading image"));
     };
 
     img.src = imageUrl;

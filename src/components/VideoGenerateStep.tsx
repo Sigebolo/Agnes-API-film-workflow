@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useRef, useEffect } from "react";
-import { Film, Sparkles, RefreshCw, Save, ArrowLeft, Plus, CheckCircle, ArrowRight, Hourglass, AlertTriangle, RotateCw, Image as ImageIcon } from "lucide-react";
+import { Film, Sparkles, RefreshCw, Save, ArrowLeft, Plus, CheckCircle, ArrowRight, Hourglass, AlertTriangle, RotateCw, Image as ImageIcon, StopCircle } from "lucide-react";
 import { VideoClip } from "../types";
 import { createVideoTaskApi, subscribeVideoProgress } from "../utils/api";
 import { compressImage, getImageSizeInfo } from "../utils/imageCompress";
@@ -49,13 +49,29 @@ export default function VideoGenerateStep({
 
   useEffect(() => {
     if (activeClip.videoTaskStatus === "polling" && activeClip.videoTaskId && !activeClip.videoUrl) {
-      connectWebSocket(activeClip.videoTaskId);
+      // Don't auto-reconnect fake task IDs
+      if (!activeClip.videoTaskId.startsWith("sim_")) {
+        connectWebSocket(activeClip.videoTaskId);
+      }
     }
   }, [activeClip.videoTaskId]);
 
   const connectWebSocket = (videoId: string) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.close();
+    }
+
+    // Block fake simulator task IDs
+    if (videoId.startsWith("sim_")) {
+      const errMsg = "Invalid task ID (simulated). This is not a real Agnes task. Please retry with a real API key.";
+      setError(errMsg);
+      setVideoLogs(prev => [...prev, `❌ Error: ${errMsg}`, "⚠️ Render pipeline aborted."]);
+      setPollStatus("");
+      setIsGenerating(false);
+      setIsVideoLoading(false);
+      onUpdateClip({ videoTaskStatus: "failed" });
+      if (onToast) onToast(createToast("error", errMsg));
+      return;
     }
 
     const taskId = videoId;
@@ -121,7 +137,7 @@ export default function VideoGenerateStep({
       let imageUrlToSend = activeClip.imageUrl;
       if (activeClip.imageUrl) {
         try {
-          const compressed = await compressImage(activeClip.imageUrl, 1024, 0.8);
+          const compressed = await compressImage(activeClip.imageUrl, 2048, 0.95);
           const sizeInfo = getImageSizeInfo(compressed);
           imageUrlToSend = compressed;
           setVideoLogs(prev => [
@@ -177,6 +193,18 @@ export default function VideoGenerateStep({
     setVideoLogs(prev => [...prev, "🔄 Manual WebSocket reconnect triggered..."]);
     connectWebSocket(activeClip.videoTaskId);
     setIsPolling(false);
+  };
+
+  const handleCancel = () => {
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    setIsGenerating(false);
+    setIsVideoLoading(false);
+    setPollStatus("");
+    setError(null);
+    onUpdateClip({ videoTaskStatus: "failed" });
   };
 
   const handleSaveClip = () => {
@@ -324,6 +352,14 @@ export default function VideoGenerateStep({
                   );
                 })}
               </div>
+
+              <button
+                onClick={handleCancel}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/10 rounded-lg font-medium text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+              >
+                <StopCircle className="w-3.5 h-3.5" />
+                Cancel
+              </button>
             </div>
           ) : error ? (
             <div className="w-full h-full bg-[#131315] border border-red-500/20 rounded-2xl p-8 flex flex-col items-center justify-center gap-6 text-center min-h-[350px] shadow-lg shadow-red-950/5">

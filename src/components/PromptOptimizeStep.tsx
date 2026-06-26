@@ -159,12 +159,12 @@ export default function PromptOptimizeStep({
         ]);
       }
 
-      // Step 3: Generate front view (if character description exists)
+      // Step 3: Generate anchor image (if character description exists)
       if (finalCharDesc.trim()) {
         setPipelineState("generating_anchor");
         setGenLogs((prev) => [
           ...prev,
-          "🔄 Step 3/4: Generating front view (text-to-image)...",
+          "🔄 Step 3/3: Generating anchor image...",
         ]);
         const frontStart = Date.now();
 
@@ -198,68 +198,24 @@ export default function PromptOptimizeStep({
           // Use raw description
         }
 
-        const frontPrompt = `masterpiece, best quality, character reference, front view, facing camera, neutral expression, full body, ${optimizedCharDesc}, white background, clean design`;
-        const frontUrl = await generateCharacterViewApi(
+        const anchorPrompt = `masterpiece, best quality, cinematic still, ${optimizedCharDesc}, film lighting, detailed, sharp focus`;
+        const anchorUrl = await generateCharacterViewApi(
           apiKey,
-          frontPrompt,
+          anchorPrompt,
           "front"
         );
         const frontElapsed = ((Date.now() - frontStart) / 1000).toFixed(1);
-        const frontCacheUrl = `${frontUrl}${frontUrl.includes("?") ? "&" : "?"}t=${Date.now()}`;
+        const cacheUrl = `${anchorUrl}${anchorUrl.includes("?") ? "&" : "?"}t=${Date.now()}`;
         setGenLogs((prev) => [
           ...prev,
-          `✅ Front view done in ${frontElapsed}s`,
+          `✅ Anchor image done in ${frontElapsed}s`,
         ]);
-
-        // Step 4: Generate other views using img2img
-        setGenLogs((prev) => [
-          ...prev,
-          "🔄 Step 4/4: Generating side/back/3/4 views (img2img)...",
-        ]);
-        const otherViews = [
-          {
-            key: "side",
-            angle: "side profile view, facing right",
-            label: "Side",
-          },
-          { key: "back", angle: "back view, rear perspective", label: "Back" },
-          {
-            key: "threeQuarter",
-            angle: "three-quarter angle view, 45 degrees",
-            label: "3/4",
-          },
-        ];
-
-        const viewUrls: Record<string, string> = { front: frontCacheUrl };
-
-        for (let i = 0; i < otherViews.length; i++) {
-          const v = otherViews[i];
-          setGenLogs((prev) => [
-            ...prev,
-            `🔄 Generating ${v.label} view (${i + 1}/3)...`,
-          ]);
-          const viewStart = Date.now();
-          const viewPrompt = `masterpiece, best quality, character reference, ${v.angle}, neutral expression, full body, ${optimizedCharDesc}, white background, consistent character design`;
-          const viewUrl = await generateCharacterViewApi(
-            apiKey,
-            viewPrompt,
-            v.key,
-            frontUrl,
-            0.55
-          );
-          const viewElapsed = ((Date.now() - viewStart) / 1000).toFixed(1);
-          viewUrls[v.key] = `${viewUrl}${viewUrl.includes("?") ? "&" : "?"}t=${Date.now()}`;
-          setGenLogs((prev) => [
-            ...prev,
-            `✅ ${v.label} view done in ${viewElapsed}s`,
-          ]);
-        }
 
         const newAnchor: CharacterAnchor = {
           id: `anchor_${Date.now()}`,
           description: optimizedCharDesc,
-          sheetUrl: frontCacheUrl,
-          viewUrls,
+          sheetUrl: cacheUrl,
+          viewUrls: { front: cacheUrl },
         };
         onSetCharacterAnchor(newAnchor);
         setAnchorHistory((prev) => [...prev, newAnchor]);
@@ -338,67 +294,27 @@ export default function PromptOptimizeStep({
         // Use raw description
       }
 
-      // Generate front view
-      setGenLogs((prev) => [...prev, "🔄 Generating front view..."]);
-      const frontStart = Date.now();
-      const frontPrompt = `masterpiece, best quality, character reference, front view, facing camera, neutral expression, full body, ${optimizedCharDesc}, white background, clean design`;
-      const frontUrl = await generateCharacterViewApi(
+      // Generate single anchor image
+      setGenLogs((prev) => [...prev, "🔄 Generating anchor image..."]);
+      const imgStart = Date.now();
+      const anchorPrompt = `masterpiece, best quality, cinematic still, ${optimizedCharDesc}, film lighting, detailed, sharp focus`;
+      const anchorUrl = await generateCharacterViewApi(
         apiKey,
-        frontPrompt,
+        anchorPrompt,
         "front"
       );
-      const frontElapsed = ((Date.now() - frontStart) / 1000).toFixed(1);
-      const frontCacheUrl = `${frontUrl}${frontUrl.includes("?") ? "&" : "?"}t=${Date.now()}`;
+      const imgElapsed = ((Date.now() - imgStart) / 1000).toFixed(1);
+      const cacheUrl = `${anchorUrl}${anchorUrl.includes("?") ? "&" : "?"}t=${Date.now()}`;
       setGenLogs((prev) => [
         ...prev,
-        `✅ Front view done in ${frontElapsed}s`,
+        `✅ Anchor image done in ${imgElapsed}s`,
       ]);
-
-      // Generate other views
-      const otherViews = [
-        {
-          key: "side",
-          angle: "side profile view, facing right",
-          label: "Side",
-        },
-        { key: "back", angle: "back view, rear perspective", label: "Back" },
-        {
-          key: "threeQuarter",
-          angle: "three-quarter angle view, 45 degrees",
-          label: "3/4",
-        },
-      ];
-
-      const viewUrls: Record<string, string> = { front: frontCacheUrl };
-
-      for (let i = 0; i < otherViews.length; i++) {
-        const v = otherViews[i];
-        setGenLogs((prev) => [
-          ...prev,
-          `🔄 Generating ${v.label} view (${i + 1}/3)...`,
-        ]);
-        const viewStart = Date.now();
-        const viewPrompt = `masterpiece, best quality, character reference, ${v.angle}, neutral expression, full body, ${optimizedCharDesc}, white background, consistent character design`;
-        const viewUrl = await generateCharacterViewApi(
-          apiKey,
-          viewPrompt,
-          v.key,
-          frontUrl,
-          0.55
-        );
-        const viewElapsed = ((Date.now() - viewStart) / 1000).toFixed(1);
-        viewUrls[v.key] = `${viewUrl}${viewUrl.includes("?") ? "&" : "?"}t=${Date.now()}`;
-        setGenLogs((prev) => [
-          ...prev,
-          `✅ ${v.label} view done in ${viewElapsed}s`,
-        ]);
-      }
 
       const newAnchor: CharacterAnchor = {
         id: `anchor_${Date.now()}`,
         description: optimizedCharDesc,
-        sheetUrl: frontCacheUrl,
-        viewUrls,
+        sheetUrl: cacheUrl,
+        viewUrls: { front: cacheUrl },
       };
       onSetCharacterAnchor(newAnchor);
       setAnchorHistory((prev) => [...prev, newAnchor]);

@@ -466,12 +466,10 @@ app.post("/api/proxy/chat", async (req, res) => {
     return res.status(401).json({ error: "Missing Authorization header (Agnes API Key)" });
   }
 
-  const userPrompt = req.body.messages?.find((m: any) => m.role === "user")?.content || "a sci-fi movie scene";
   const isDemo = authHeader.includes("••••") || authHeader.toLowerCase().includes("demo") || authHeader.toLowerCase().includes("mock");
 
   if (isDemo) {
-    console.log("Using local simulator for Chat request");
-    return res.json(await getSimulatedChat(userPrompt));
+    return res.status(400).json({ error: "Demo key detected. Please enter a real Agnes API key." });
   }
 
   try {
@@ -485,19 +483,25 @@ app.post("/api/proxy/chat", async (req, res) => {
     });
 
     const responseText = await response.text();
+    
+    if (!response.ok) {
+      let errorMsg = `Agnes API error: ${response.status}`;
+      try {
+        const errData = JSON.parse(responseText);
+        errorMsg = errData.error?.message || errData.message || errorMsg;
+      } catch {}
+      return res.status(response.status).json({ error: errorMsg });
+    }
+
     try {
       const data = JSON.parse(responseText);
-      if (response.ok) {
-        return res.status(response.status).json(data);
-      }
-      throw new Error(`Upstream returned error status ${response.status}`);
+      return res.json(data);
     } catch (e) {
-      console.warn("Agnes proxy chat returned non-JSON/HTML, falling back to simulator:", responseText.slice(0, 300));
-      return res.json(await getSimulatedChat(userPrompt));
+      return res.status(500).json({ error: "Invalid response from Agnes API" });
     }
   } catch (error: any) {
-    console.error("Proxy Chat error, falling back to simulator:", error);
-    return res.json(await getSimulatedChat(userPrompt));
+    console.error("Proxy Chat error:", error);
+    return res.status(500).json({ error: error.message || "Failed to connect to Agnes API" });
   }
 });
 
@@ -508,23 +512,18 @@ app.post("/api/proxy/images", async (req, res) => {
     return res.status(401).json({ error: "Missing Authorization header (Agnes API Key)" });
   }
 
-  const prompt = req.body.prompt || "cinematic scene";
-  const keyPreview = authHeader.slice(0, 20) + "...";
   const isDemo = authHeader.includes("••••") || authHeader.toLowerCase().includes("demo") || authHeader.toLowerCase().includes("mock");
-  console.log(`[Image API] Key: ${keyPreview} | isDemo: ${isDemo}`);
 
   if (isDemo) {
-    console.log("Using local simulator for Image request");
-    return res.json(getSimulatedImage(prompt));
+    return res.status(400).json({ error: "Demo key detected. Please enter a real Agnes API key." });
   }
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
 
     const requestBody = JSON.stringify(req.body);
     console.log(`[Image API] → POST https://apihub.agnes-ai.com/v1/images/generations`);
-    console.log(`[Image API] Body: ${requestBody.slice(0, 500)}`);
 
     const response = await fetch("https://apihub.agnes-ai.com/v1/images/generations", {
       method: "POST",
@@ -537,24 +536,29 @@ app.post("/api/proxy/images", async (req, res) => {
     });
     clearTimeout(timeoutId);
 
-    console.log(`[Image API] ← Status: ${response.status}`);
-
     const responseText = await response.text();
-    console.log(`[Image API] Response: ${responseText.slice(0, 300)}`);
+
+    if (!response.ok) {
+      let errorMsg = `Agnes API error: ${response.status}`;
+      try {
+        const errData = JSON.parse(responseText);
+        errorMsg = errData.error?.message || errData.message || errorMsg;
+      } catch {}
+      return res.status(response.status).json({ error: errorMsg });
+    }
 
     try {
       const data = JSON.parse(responseText);
-      if (response.ok && data.data?.[0]?.url) {
-        return res.status(response.status).json(data);
+      if (data.data?.[0]?.url) {
+        return res.json(data);
       }
-      throw new Error(`Upstream returned error or invalid image output. Status: ${response.status}`);
+      return res.status(500).json({ error: "Invalid response: no image URL returned" });
     } catch (e) {
-      console.warn("Agnes proxy images returned non-JSON/HTML, falling back to simulator:", responseText.slice(0, 300));
-      return res.json(getSimulatedImage(prompt));
+      return res.status(500).json({ error: "Invalid response from Agnes API" });
     }
   } catch (error: any) {
-    console.error("Proxy Images error, falling back to simulator:", error);
-    return res.json(getSimulatedImage(prompt));
+    console.error("Proxy Images error:", error);
+    return res.status(500).json({ error: error.message || "Failed to connect to Agnes API" });
   }
 });
 
@@ -568,8 +572,7 @@ app.post("/api/proxy/videos", async (req, res) => {
   const isDemo = authHeader.includes("••••") || authHeader.toLowerCase().includes("demo") || authHeader.toLowerCase().includes("mock");
 
   if (isDemo) {
-    console.log("Using local simulator for Video creation request");
-    return res.json(getSimulatedVideoTask());
+    return res.status(400).json({ error: "Demo key detected. Please enter a real Agnes API key." });
   }
 
   try {
@@ -593,19 +596,30 @@ app.post("/api/proxy/videos", async (req, res) => {
     const responseText = await response.text();
     console.log(`[Video API] ← Status: ${response.status}`);
     console.log(`[Video API] Response: ${responseText.slice(0, 500)}`);
+
+    // If API returns error (503, 429, etc.), return error to client instead of fallback
+    if (!response.ok) {
+      let errorMsg = `Agnes API error: ${response.status}`;
+      try {
+        const errData = JSON.parse(responseText);
+        errorMsg = errData.message || errData.error?.message || errorMsg;
+      } catch {}
+      return res.status(response.status).json({ error: errorMsg });
+    }
+
     try {
       const data = JSON.parse(responseText);
-      if (response.ok && (data.task_id || data.video_id)) {
+      if (data.task_id || data.video_id) {
         return res.status(response.status).json(data);
       }
-      throw new Error(`Upstream returned error or invalid video output. Status: ${response.status}`);
+      return res.status(400).json({ error: "Invalid response: missing task_id or video_id" });
     } catch (e) {
-      console.warn("Agnes proxy videos returned non-JSON/HTML, falling back to simulator:", responseText.slice(0, 300));
-      return res.json(getSimulatedVideoTask());
+      return res.status(500).json({ error: "Failed to parse Agnes API response" });
     }
   } catch (error: any) {
-    console.error("Proxy Videos error, falling back to simulator:", error);
-    return res.json(getSimulatedVideoTask());
+    console.error("Proxy Videos error:", error);
+    // Don't fall back to simulator - return error to client
+    return res.status(500).json({ error: error.message || "Failed to connect to Agnes API" });
   }
 });
 
@@ -622,8 +636,7 @@ app.get("/api/proxy/status", async (req, res) => {
   const isDemo = authHeader.includes("••••") || authHeader.toLowerCase().includes("demo") || authHeader.toLowerCase().includes("mock");
 
   if (isDemo) {
-    console.log("Using local simulator for Video status request");
-    return res.json(getSimulatedStatus(targetId));
+    return res.status(400).json({ error: "Demo key detected. Please enter a real Agnes API key." });
   }
 
   let targetUrl = "";
@@ -637,9 +650,7 @@ app.get("/api/proxy/status", async (req, res) => {
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout for status check
-
-    console.log(`[Video Status] → GET ${targetUrl}`);
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
 
     const response = await fetch(targetUrl, {
       method: "GET",
@@ -651,19 +662,25 @@ app.get("/api/proxy/status", async (req, res) => {
     clearTimeout(timeoutId);
 
     const responseText = await response.text();
+
+    if (!response.ok) {
+      let errorMsg = `Agnes API error: ${response.status}`;
+      try {
+        const errData = JSON.parse(responseText);
+        errorMsg = errData.error?.message || errData.message || errorMsg;
+      } catch {}
+      return res.status(response.status).json({ error: errorMsg });
+    }
+
     try {
       const data = JSON.parse(responseText);
-      if (response.ok) {
-        return res.status(response.status).json(data);
-      }
-      throw new Error(`Upstream returned error status ${response.status}`);
+      return res.json(data);
     } catch (e) {
-      console.warn("Agnes proxy status returned non-JSON/HTML, falling back to simulator:", responseText.slice(0, 300));
-      return res.json(getSimulatedStatus(targetId));
+      return res.status(500).json({ error: "Invalid response from Agnes API" });
     }
   } catch (error: any) {
-    console.error("Proxy Status error, falling back to simulator:", error);
-    return res.json(getSimulatedStatus(targetId));
+    console.error("Proxy Status error:", error);
+    return res.status(500).json({ error: error.message || "Failed to connect to Agnes API" });
   }
 });
 

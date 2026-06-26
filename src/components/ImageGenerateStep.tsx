@@ -5,9 +5,10 @@
 
 import React, { useState } from "react";
 import { Image as ImageIcon, Sparkles, RefreshCw, ArrowRight, ArrowLeft, Upload, CheckCircle2, Hourglass, AlertTriangle, User } from "lucide-react";
-import { VideoClip, CharacterAnchor } from "../types";
+import { VideoClip, CharacterAnchor, HistoryImage } from "../types";
 import { generateImageApi } from "../utils/api";
 import { ToastItem, createToast } from "./Toast";
+import ImageHistoryPanel from "./ImageHistoryPanel";
 
 interface ImageGenerateStepProps {
   apiKey: string;
@@ -104,6 +105,17 @@ export default function ImageGenerateStep({
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       const cacheBustedUrl = imageUrl ? `${imageUrl}${imageUrl.includes("?") ? "&" : "?"}t=${Date.now()}` : "";
       onUpdateClip({ imageUrl: cacheBustedUrl });
+
+      // Add to image history
+      const historyEntry: HistoryImage = {
+        id: `hist_${Date.now()}`,
+        url: cacheBustedUrl,
+        prompt: promptToUse,
+        timestamp: Date.now(),
+      };
+      const currentHistory = activeClip.imageHistory || [];
+      onUpdateClip({ imageUrl: cacheBustedUrl, imageHistory: [...currentHistory, historyEntry] });
+
       setGenerationLogs(prev => [
         ...prev,
         `✅ API responded — ${elapsed}s elapsed`,
@@ -501,6 +513,20 @@ export default function ImageGenerateStep({
                 )}
               </div>
 
+              {/* Image History Panel */}
+              {(activeClip.imageHistory?.length ?? 0) > 0 && (
+                <ImageHistoryPanel
+                  images={activeClip.imageHistory || []}
+                  onSelect={(img) => {
+                    onUpdateClip({ imageUrl: img.url });
+                    setIsImageLoading(true);
+                  }}
+                  onDragStart={(img) => {
+                    // Drag started - handled by drop zone
+                  }}
+                />
+              )}
+
               <div className="flex justify-end gap-3 pt-2">
                 <button
                   onClick={onNext}
@@ -512,14 +538,36 @@ export default function ImageGenerateStep({
               </div>
             </div>
           ) : (
-            <div className="w-full h-full bg-[#1a1a1c] border-2 border-dashed border-white/5 rounded-2xl p-12 flex flex-col items-center justify-center gap-3 text-center min-h-[350px]">
+            <div
+              className="w-full h-full bg-[#1a1a1c] border-2 border-dashed border-white/5 rounded-2xl p-12 flex flex-col items-center justify-center gap-3 text-center min-h-[350px] transition-colors"
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.currentTarget.classList.add("border-orange-500/50", "bg-orange-500/5");
+              }}
+              onDragLeave={(e) => {
+                e.currentTarget.classList.remove("border-orange-500/50", "bg-orange-500/5");
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.currentTarget.classList.remove("border-orange-500/50", "bg-orange-500/5");
+                try {
+                  const data = JSON.parse(e.dataTransfer.getData("application/json"));
+                  if (data.url) {
+                    const cacheBustedUrl = `${data.url}${data.url.includes("?") ? "&" : "?"}t=${Date.now()}`;
+                    onUpdateClip({ imageUrl: cacheBustedUrl });
+                    setIsImageLoading(true);
+                    setError(null);
+                  }
+                } catch {}
+              }}
+            >
               <div className="w-12 h-12 rounded-full bg-[#1f1f22] flex items-center justify-center text-slate-500">
                 <ImageIcon className="w-6 h-6" />
               </div>
               <div className="space-y-1">
                 <p className="text-sm font-semibold text-slate-300 font-sans">No keyframe generated yet</p>
                 <p className="text-xs text-slate-500 max-w-sm">
-                  Generate your custom image or import an existing URL to start the movie workflow.
+                  Generate your custom image, import an existing URL, or drag an image from history.
                 </p>
               </div>
             </div>

@@ -30,6 +30,7 @@ interface PromptOptimizeStepProps {
   onUpdateClip: (updates: Partial<VideoClip>) => void;
   onSetCharacterAnchor: (anchor: CharacterAnchor | null) => void;
   onNext: () => void;
+  onSkipToVideo?: () => void;
   onToast?: (toast: ToastItem) => void;
 }
 
@@ -48,6 +49,7 @@ export default function PromptOptimizeStep({
   onUpdateClip,
   onSetCharacterAnchor,
   onNext,
+  onSkipToVideo,
   onToast,
 }: PromptOptimizeStepProps) {
   // Prompt state
@@ -66,6 +68,9 @@ export default function PromptOptimizeStep({
   const [error, setError] = useState<string | null>(null);
   const [genLogs, setGenLogs] = useState<string[]>([]);
   const [previewAngle, setPreviewAngle] = useState<string>("front");
+
+  // Anchor history for comparison
+  const [anchorHistory, setAnchorHistory] = useState<CharacterAnchor[]>([]);
 
   // --- Pipeline: Optimize → Extract → Generate Anchor ---
   const handleRunPipeline = async () => {
@@ -250,12 +255,14 @@ export default function PromptOptimizeStep({
           ]);
         }
 
-        onSetCharacterAnchor({
+        const newAnchor: CharacterAnchor = {
           id: `anchor_${Date.now()}`,
           description: optimizedCharDesc,
           sheetUrl: frontCacheUrl,
           viewUrls,
-        });
+        };
+        onSetCharacterAnchor(newAnchor);
+        setAnchorHistory((prev) => [...prev, newAnchor]);
 
         const totalElapsed = ((Date.now() - startTime) / 1000).toFixed(1);
         setGenLogs((prev) => [
@@ -387,12 +394,14 @@ export default function PromptOptimizeStep({
         ]);
       }
 
-      onSetCharacterAnchor({
+      const newAnchor: CharacterAnchor = {
         id: `anchor_${Date.now()}`,
         description: optimizedCharDesc,
         sheetUrl: frontCacheUrl,
         viewUrls,
-      });
+      };
+      onSetCharacterAnchor(newAnchor);
+      setAnchorHistory((prev) => [...prev, newAnchor]);
 
       const totalElapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       setGenLogs((prev) => [
@@ -659,16 +668,52 @@ export default function PromptOptimizeStep({
                     {characterAnchor.description}
                   </p>
                 </div>
+
+                {/* Anchor History */}
+                {anchorHistory.length > 1 && (
+                  <div className="space-y-2">
+                    <h5 className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                      Anchor History ({anchorHistory.length})
+                    </h5>
+                    <div className="flex gap-2 overflow-x-auto pb-2">
+                      {anchorHistory.map((anchor, idx) => (
+                        <button
+                          key={anchor.id}
+                          onClick={() => onSetCharacterAnchor(anchor)}
+                          className={`flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 transition-all cursor-pointer ${
+                            anchor.id === characterAnchor.id
+                              ? "border-purple-500 ring-2 ring-purple-500/30"
+                              : "border-white/10 hover:border-white/20"
+                          }`}
+                        >
+                          <img
+                            src={anchor.sheetUrl}
+                            alt={`Anchor ${idx + 1}`}
+                            className="w-full h-full object-cover"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
 
           {/* Next Button */}
-          <div className="pt-3 border-t border-white/5 flex justify-end">
+          <div className="pt-3 border-t border-white/5 flex justify-between">
+            {characterAnchor && onSkipToVideo && (
+              <button
+                onClick={onSkipToVideo}
+                className="px-4 py-2.5 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-400 rounded-lg font-bold text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer"
+              >
+                ⚡ Skip to Video
+              </button>
+            )}
             <button
               onClick={onNext}
               disabled={!activeClip.imagePrompt}
-              className="px-5 py-2.5 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-800/60 disabled:text-slate-600 text-white rounded-lg font-bold text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-orange-950/20"
+              className="px-5 py-2.5 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-800/60 disabled:text-slate-600 text-white rounded-lg font-bold text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-orange-950/20 ml-auto"
             >
               Step 2: Generate Image
               <ArrowRight className="w-3.5 h-3.5" />

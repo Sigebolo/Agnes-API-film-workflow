@@ -245,6 +245,7 @@ export default function App() {
                         onUpdateClip={(updates) => handleUpdateClip(activeClip.id, updates)}
                         onSetCharacterAnchor={(anchor) => updateState({ characterAnchor: anchor })}
                         onNext={() => updateState({ currentStep: "image" })}
+                        onSkipToVideo={() => updateState({ currentStep: "video" })}
                         onToast={addToast}
                       />
                     )}

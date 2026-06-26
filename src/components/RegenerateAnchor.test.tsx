@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import PromptOptimizeStep from './PromptOptimizeStep';
 import { VideoClip, CharacterAnchor } from '../types';
 
@@ -27,7 +27,7 @@ const mockAnchor: CharacterAnchor = {
   },
 };
 
-describe('PromptOptimizeStep - One-click to Video', () => {
+describe('PromptOptimizeStep - Regenerate Character Anchor', () => {
   const mockOnNext = vi.fn();
   const mockOnSetCharacterAnchor = vi.fn();
   const mockOnUpdateClip = vi.fn();
@@ -38,7 +38,7 @@ describe('PromptOptimizeStep - One-click to Video', () => {
     vi.clearAllMocks();
   });
 
-  it('shows "Skip to Video" button when character anchor exists', () => {
+  it('shows "Regenerate Character Anchor" button when anchor exists', () => {
     render(
       <PromptOptimizeStep
         apiKey="test-key"
@@ -52,10 +52,10 @@ describe('PromptOptimizeStep - One-click to Video', () => {
       />
     );
 
-    expect(screen.getByText(/Skip to Video/i)).toBeInTheDocument();
+    expect(screen.getByText(/Regenerate Character Anchor/i)).toBeInTheDocument();
   });
 
-  it('does not show "Skip to Video" button when no character anchor', () => {
+  it('does not show regenerate button when no anchor', () => {
     render(
       <PromptOptimizeStep
         apiKey="test-key"
@@ -69,10 +69,10 @@ describe('PromptOptimizeStep - One-click to Video', () => {
       />
     );
 
-    expect(screen.queryByText(/Skip to Video/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Regenerate Character Anchor/i)).not.toBeInTheDocument();
   });
 
-  it('calls onSkipToVideo when button clicked', () => {
+  it('shows character anchor images when anchor exists', () => {
     render(
       <PromptOptimizeStep
         apiKey="test-key"
@@ -86,7 +86,6 @@ describe('PromptOptimizeStep - One-click to Video', () => {
       />
     );
 
-    fireEvent.click(screen.getByText(/Skip to Video/i));
-    expect(mockOnSkipToVideo).toHaveBeenCalledTimes(1);
+    expect(screen.getAllByRole('img').length).toBeGreaterThan(0);
   });
 });

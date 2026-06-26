@@ -15,6 +15,13 @@ export interface CharacterAnchor {
   };
 }
 
+export interface HistoryImage {
+  id: string;
+  url: string;
+  prompt: string;
+  timestamp: number;
+}
+
 export interface VideoClip {
   id: string;
   imagePrompt: string;
@@ -29,6 +36,7 @@ export interface VideoClip {
   imageTaskStatus?: TaskStatus;
   videoTaskStatus?: TaskStatus;
   useCharacterAnchor?: boolean;
+  imageHistory?: HistoryImage[];
 }
 
 export type TaskStatus = 'idle' | 'generating' | 'polling' | 'completed' | 'failed';

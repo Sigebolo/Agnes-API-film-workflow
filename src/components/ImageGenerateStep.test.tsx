@@ -40,7 +40,7 @@ describe('ImageGenerateStep - 生图流程', () => {
     fireEvent.click(genButton);
 
     await waitFor(() => {
-      expect(screen.getByText(/Dispatched job ID: IMG-/)).toBeInTheDocument();
+      expect(screen.getByText(/Job created: IMG-/)).toBeInTheDocument();
     });
   });
 
@@ -72,7 +72,7 @@ describe('ImageGenerateStep - 生图流程', () => {
       expect(defaultProps.onToast).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'success',
-          message: expect.stringContaining('Image generated successfully'),
+          message: expect.stringContaining('Image generated in'),
         })
       );
     });
@@ -178,7 +178,7 @@ describe('ImageGenerateStep - 生图流程', () => {
     fireEvent.click(genButton);
 
     await waitFor(() => {
-      expect(screen.getByText(/Using character anchor as reference/)).toBeInTheDocument();
+      expect(screen.getByText(/Character anchor attached as reference/)).toBeInTheDocument();
     });
   });
 });

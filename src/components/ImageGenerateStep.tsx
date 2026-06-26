@@ -66,43 +66,16 @@ export default function ImageGenerateStep({
     const generatedId = "IMG-" + Math.random().toString(36).substring(2, 11).toUpperCase();
     onUpdateClip({ imageTaskId: generatedId });
 
-    if (isImg2Img) {
-      setGenerationLogs([
-        "🔄 Initializing image-to-image pipeline...",
-        `📡 Dispatched job ID: ${generatedId}`,
-        "🌐 Connecting to Agnes Core AI clusters..."
-      ]);
-    } else {
-      setGenerationLogs([
-        "🔄 Initializing image generation pipeline...",
-        `📡 Dispatched job ID: ${generatedId}`,
-        "🌐 Connecting to Agnes Core AI clusters..."
-      ]);
-    }
+    const now = new Date();
+    const ts = now.toLocaleTimeString("en-US", { hour12: false });
+    setGenerationLogs([
+      `📡 Job created: ${generatedId}`,
+      `🕐 Dispatched at ${ts}`,
+      `⚙️ Model: agnes-image-2.1-flash | Size: ${size}`,
+      "🌐 Sending request to Agnes API..."
+    ]);
 
-    const logTimeline = isImg2Img ? [
-      { delay: 800, msg: "⚡ Secure handshake established with Agnes Neural engine." },
-      { delay: 1800, msg: "🖼️ Loading reference image asset into synthesis canvas..." },
-      { delay: 3000, msg: `📐 Applying strength ratio ${img2ImgStrength} & size (${size})...` },
-      { delay: 4200, msg: "✨ Performing image-guided spatial composition synthesis..." },
-      { delay: 5500, msg: "🔮 Running high-fidelity volumetric rendering refinement..." },
-      { delay: 7000, msg: "💾 Merging with base weights and caching final image..." }
-    ] : [
-      { delay: 800, msg: "⚡ Secure handshake established with Agnes Neural engine." },
-      { delay: 1800, msg: "🎨 Loading Agnes Image 2.1 flash base weights..." },
-      { delay: 3000, msg: `📐 Applying target aspect ratio layout parameters (${size})...` },
-      { delay: 4200, msg: "✨ Synthesizing spatial composition & ambient lighting..." },
-      { delay: 5500, msg: "🔮 Runining high-fidelity volumetric rendering pass..." },
-      { delay: 7000, msg: "💾 Finalizing keyframe asset and syncing CDN cache..." }
-    ];
-
-    const timeouts: NodeJS.Timeout[] = [];
-    logTimeline.forEach(step => {
-      const t = setTimeout(() => {
-        setGenerationLogs(prev => [...prev, step.msg]);
-      }, step.delay);
-      timeouts.push(t);
-    });
+    const startTime = Date.now();
 
     try {
       // Determine reference image: character anchor takes priority if enabled
@@ -111,12 +84,14 @@ export default function ImageGenerateStep({
 
       if (useCharacterAnchor && characterAnchor?.sheetUrl) {
         refImage = characterAnchor.sheetUrl;
-        // Prepend character description to prompt for consistency
         promptToUse = `${characterAnchor.description}, ${activeClip.imagePrompt}`;
-        setGenerationLogs(prev => [...prev, "📎 Using character anchor as reference for consistency..."]);
+        setGenerationLogs(prev => [...prev, "📎 Character anchor attached as reference image"]);
       } else if (isImg2Img) {
         refImage = img2ImgSource === "current" ? activeClip.imageUrl : customImg2ImgUrl.trim();
+        setGenerationLogs(prev => [...prev, `🖼️ Img2Img mode — strength: ${img2ImgStrength}`]);
       }
+
+      setGenerationLogs(prev => [...prev, "⏳ Awaiting Agnes API response..."]);
 
       const imageUrl = await generateImageApi(
         apiKey,
@@ -125,23 +100,31 @@ export default function ImageGenerateStep({
         refImage,
         (useCharacterAnchor && characterAnchor?.sheetUrl) ? 0.6 : (isImg2Img ? img2ImgStrength : undefined)
       );
-      // Append a cache-buster timestamp to force the browser to bypass its cache and trigger an automatic reload
+
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       const cacheBustedUrl = imageUrl ? `${imageUrl}${imageUrl.includes("?") ? "&" : "?"}t=${Date.now()}` : "";
       onUpdateClip({ imageUrl: cacheBustedUrl });
-      setGenerationLogs(prev => [...prev, "✅ Image generation completed successfully!", "🎉 Synced keyframe asset to active scene."]);
+      setGenerationLogs(prev => [
+        ...prev,
+        `✅ API responded — ${elapsed}s elapsed`,
+        "🎉 Image URL received and synced to scene"
+      ]);
       if (onToast) {
-        onToast(createToast("success", "Image generated successfully!"));
+        onToast(createToast("success", `Image generated in ${elapsed}s`));
       }
     } catch (err: any) {
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       const errMsg = err.message || "An error occurred while generating the image.";
       setError(errMsg);
-      setGenerationLogs(prev => [...prev, `❌ Error: ${errMsg}`, "⚠️ Synthesis pipeline aborted."]);
+      setGenerationLogs(prev => [
+        ...prev,
+        `❌ API error after ${elapsed}s: ${errMsg}`
+      ]);
       setIsImageLoading(false);
       if (onToast) {
         onToast(createToast("error", `Image generation failed: ${errMsg}`));
       }
     } finally {
-      timeouts.forEach(clearTimeout);
       setIsGenerating(false);
     }
   };

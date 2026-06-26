@@ -159,28 +159,23 @@ export async function generateCharacterViewApi(
   apiKey: string,
   description: string,
   viewAngle: string,
-  referenceImageUrl?: string
+  referenceImageUrl?: string,
+  strength?: number
 ): Promise<string> {
   await rateLimiter.acquire();
-  const anglePrompts: Record<string, string> = {
-    front: "front view, facing camera, neutral expression, full body",
-    side: "side profile view, facing right, neutral expression, full body",
-    back: "back view, rear perspective, neutral expression, full body",
-    threeQuarter: "three-quarter angle view, 45 degrees, neutral expression, full body",
-  };
+  const prompt = description.includes("view") ? description : `masterpiece, best quality, character reference, ${description}, white background`;
 
-  const angleDesc = anglePrompts[viewAngle] || anglePrompts.front;
-  const prompt = `masterpiece, best quality, ultra-detailed, 8k UHD, character reference, ${angleDesc}, ${description}, white background, clean design, consistent character design`;
-
+  // 2.1-flash for text-to-image, 2.0-flash for img2img
+  const model = referenceImageUrl ? "agnes-image-2.0-flash" : "agnes-image-2.1-flash";
   const body: Record<string, any> = {
-    model: "agnes-image-2.1-flash",
+    model,
     prompt,
     size: "1024x1024",
   };
 
   if (referenceImageUrl) {
     body.image = referenceImageUrl;
-    body.strength = 0.6;
+    body.strength = strength || 0.6;
   }
 
   const response = await fetch("/api/proxy/images", {

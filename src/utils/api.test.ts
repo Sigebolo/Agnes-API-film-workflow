@@ -156,7 +156,7 @@ describe('API Functions', () => {
       };
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockResponse));
 
-      const result = await generateCharacterViewApi('test-key', 'test desc', 'front');
+      const result = await generateCharacterViewApi('test-key', 'masterpiece, front view, character, test desc', 'front');
 
       expect(result).toBe('https://example.com/front.png');
       const callBody = JSON.parse(vi.mocked(fetch).mock.calls[0][1]?.body as string);

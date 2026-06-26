@@ -5,11 +5,10 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Sparkles, Image as ImageIcon, Film, Layers, CheckCircle2, AlertCircle, User } from "lucide-react";
-import { VideoClip, AppStep, WorkflowState, CharacterAnchor } from "./types";
+import { Sparkles, Image as ImageIcon, Film, Layers, CheckCircle2, AlertCircle } from "lucide-react";
+import { VideoClip, AppStep, WorkflowState } from "./types";
 import Sidebar from "./components/Sidebar";
 import PromptOptimizeStep from "./components/PromptOptimizeStep";
-import CharacterAnchorStep from "./components/CharacterAnchorStep";
 import ImageGenerateStep from "./components/ImageGenerateStep";
 import VideoGenerateStep from "./components/VideoGenerateStep";
 import Timeline from "./components/Timeline";
@@ -123,13 +122,8 @@ export default function App() {
   const stepItems: { id: AppStep; label: string; icon: React.ReactNode }[] = [
     {
       id: "prompt",
-      label: "Optimize Prompt",
+      label: "Prompt & Anchor",
       icon: <Sparkles className="w-4 h-4" />,
-    },
-    {
-      id: "character",
-      label: "Character Anchor",
-      icon: <User className="w-4 h-4" />,
     },
     {
       id: "image",
@@ -180,6 +174,10 @@ export default function App() {
           <Sidebar
             apiKey={state.apiKey}
             onChangeApiKey={(key) => updateState({ apiKey: key })}
+            onSaveApiKey={(key) => {
+              updateState({ apiKey: key });
+              try { localStorage.setItem("agnes_api_key_v2", key); } catch {}
+            }}
             clips={state.clips}
             activeClipId={state.activeClipId}
             onSelectClip={(id) => updateState({ activeClipId: id })}
@@ -245,16 +243,7 @@ export default function App() {
                         activeClip={activeClip}
                         characterAnchor={state.characterAnchor}
                         onUpdateClip={(updates) => handleUpdateClip(activeClip.id, updates)}
-                        onNext={() => updateState({ currentStep: "character" })}
-                      />
-                    )}
-
-                    {state.currentStep === "character" && (
-                      <CharacterAnchorStep
-                        apiKey={state.apiKey}
-                        characterAnchor={state.characterAnchor}
                         onSetCharacterAnchor={(anchor) => updateState({ characterAnchor: anchor })}
-                        onPrev={() => updateState({ currentStep: "prompt" })}
                         onNext={() => updateState({ currentStep: "image" })}
                         onToast={addToast}
                       />
@@ -266,7 +255,7 @@ export default function App() {
                         activeClip={activeClip}
                         characterAnchor={state.characterAnchor}
                         onUpdateClip={(updates) => handleUpdateClip(activeClip.id, updates)}
-                        onPrev={() => updateState({ currentStep: "character" })}
+                        onPrev={() => updateState({ currentStep: "prompt" })}
                         onNext={() => updateState({ currentStep: "video" })}
                         onToast={addToast}
                       />

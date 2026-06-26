@@ -32,6 +32,7 @@ export default function CharacterAnchorStep({
   const [error, setError] = useState<string | null>(null);
   const [isAutoExtracting, setIsAutoExtracting] = useState(false);
   const [previewAngle, setPreviewAngle] = useState<string>("front");
+  const [genLogs, setGenLogs] = useState<string[]>([]);
 
   const handleAutoExtract = async () => {
     setIsAutoExtracting(true);
@@ -72,40 +73,94 @@ export default function CharacterAnchorStep({
 
     setIsGenerating(true);
     setError(null);
+    const ts = new Date().toLocaleTimeString("en-US", { hour12: false });
+    const startTime = Date.now();
+
+    // New workflow: optimize → front view → img2img other angles
+    setGenLogs([
+      `🕐 Started at ${ts}`,
+      `📝 Raw input: ${description.slice(0, 80)}${description.length > 80 ? "..." : ""}`,
+      "🔄 Step 1/5: Optimizing character prompt via Agnes Chat API...",
+    ]);
 
     try {
-      if (generationMode === "sheet") {
-        const sheetUrl = await generateCharacterSheetApi(apiKey, description);
-        const cacheBustedUrl = `${sheetUrl}${sheetUrl.includes("?") ? "&" : "?"}t=${Date.now()}`;
-        onSetCharacterAnchor({
-          id: `anchor_${Date.now()}`,
-          description,
-          sheetUrl: cacheBustedUrl,
-          viewUrls: {},
+      // Step 1: Optimize the character description
+      let optimizedDesc = description;
+      try {
+        const optResponse = await fetch("/api/proxy/chat", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: "agnes-2.0-flash",
+            messages: [
+              {
+                role: "system",
+                content: "You are a Stable Diffusion prompt engineer. Convert the user's character description into a detailed, comma-separated English prompt for image generation. Focus on: hair (color, style, length), eyes (color), skin tone, body type, age, clothing, accessories, distinctive features. Output ONLY the prompt text, no explanation."
+              },
+              { role: "user", content: description }
+            ],
+          }),
         });
-      } else {
-        const views = ["front", "side", "back", "threeQuarter"];
-        const viewUrls: Record<string, string> = {};
-        
-        for (const view of views) {
-          const viewUrl = await generateCharacterViewApi(apiKey, description, view);
-          viewUrls[view] = `${viewUrl}${viewUrl.includes("?") ? "&" : "?"}t=${Date.now()}`;
+        if (optResponse.ok) {
+          const optData = await optResponse.json();
+          optimizedDesc = optData.choices?.[0]?.message?.content || description;
+          setGenLogs(prev => [...prev, `✅ Optimized prompt: ${optimizedDesc.slice(0, 80)}...`]);
+        } else {
+          setGenLogs(prev => [...prev, "⚠️ Prompt optimization failed, using raw description"]);
         }
-        
-        onSetCharacterAnchor({
-          id: `anchor_${Date.now()}`,
-          description,
-          sheetUrl: viewUrls.front || "",
-          viewUrls,
-        });
+      } catch {
+        setGenLogs(prev => [...prev, "⚠️ Chat API unavailable, using raw description"]);
       }
+
+      // Step 2: Generate front view (text-to-image)
+      setGenLogs(prev => [...prev, "🔄 Step 2/5: Generating front view (text-to-image)..."]);
+      const frontStart = Date.now();
+      const frontPrompt = `masterpiece, best quality, character reference, front view, facing camera, neutral expression, full body, ${optimizedDesc}, white background, clean design`;
+      const frontUrl = await generateCharacterViewApi(apiKey, frontPrompt, "front");
+      const frontElapsed = ((Date.now() - frontStart) / 1000).toFixed(1);
+      const frontCacheUrl = `${frontUrl}${frontUrl.includes("?") ? "&" : "?"}t=${Date.now()}`;
+      setGenLogs(prev => [...prev, `✅ Front view done in ${frontElapsed}s`]);
+
+      // Step 3-5: Generate other views using img2img (front as reference)
+      const otherViews = [
+        { key: "side", angle: "side profile view, facing right", label: "Side" },
+        { key: "back", angle: "back view, rear perspective", label: "Back" },
+        { key: "threeQuarter", angle: "three-quarter angle view, 45 degrees", label: "3/4" },
+      ];
+
+      const viewUrls: Record<string, string> = { front: frontCacheUrl };
+
+      for (let i = 0; i < otherViews.length; i++) {
+        const v = otherViews[i];
+        setGenLogs(prev => [...prev, `🔄 Step ${i + 3}/5: Generating ${v.label} view (img2img from front)...`]);
+        const viewStart = Date.now();
+        const viewPrompt = `masterpiece, best quality, character reference, ${v.angle}, neutral expression, full body, ${optimizedDesc}, white background, consistent character design`;
+        const viewUrl = await generateCharacterViewApi(apiKey, viewPrompt, v.key, frontUrl, 0.55);
+        const viewElapsed = ((Date.now() - viewStart) / 1000).toFixed(1);
+        viewUrls[v.key] = `${viewUrl}${viewUrl.includes("?") ? "&" : "?"}t=${Date.now()}`;
+        setGenLogs(prev => [...prev, `✅ ${v.label} view done in ${viewElapsed}s`]);
+      }
+
+      const totalElapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      onSetCharacterAnchor({
+        id: `anchor_${Date.now()}`,
+        description: optimizedDesc,
+        sheetUrl: frontCacheUrl,
+        viewUrls,
+      });
+      setGenLogs(prev => [...prev, `🎉 All 4 views generated in ${totalElapsed}s — anchor ready!`]);
 
       if (onToast) {
         onToast(createToast("success", "Character anchor generated successfully!"));
       }
     } catch (err: any) {
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       const errMsg = err.message || "An error occurred while generating character.";
       setError(errMsg);
+      setGenLogs(prev => [...prev, `❌ API error after ${elapsed}s: ${errMsg}`]);
       if (onToast) {
         onToast(createToast("error", `Character generation failed: ${errMsg}`));
       }
@@ -240,6 +295,18 @@ export default function CharacterAnchorStep({
         <div className="bg-[#1a1a1c] rounded-xl border border-white/5 p-5 flex flex-col justify-between space-y-4">
           <div className="space-y-3 flex-1">
             <h3 className="text-sm font-semibold text-slate-200">Character Reference Preview</h3>
+
+            {/* Generation Logs */}
+            {genLogs.length > 0 && (
+              <div className="bg-[#131315] border border-white/5 rounded-xl p-3 font-mono text-[10px] space-y-1 max-h-36 overflow-y-auto">
+                {genLogs.map((log, i) => (
+                  <div key={i} className={`flex items-start gap-2 ${i === genLogs.length - 1 ? "text-orange-400" : "text-slate-400"}`}>
+                    <span className="text-[9px] text-slate-600 select-none">[{i + 1}]</span>
+                    <span>{log}</span>
+                  </div>
+                ))}
+              </div>
+            )}
             <p className="text-xs text-slate-500 leading-relaxed">
               {characterAnchor 
                 ? "Character anchor is set. This will be used as reference for all image generations."

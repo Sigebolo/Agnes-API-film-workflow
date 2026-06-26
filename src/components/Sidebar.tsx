@@ -3,13 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from "react";
-import { Key, Video, HelpCircle, AlertCircle, Sparkles, Folder, ChevronRight, Settings } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { Key, Video, HelpCircle, AlertCircle, Sparkles, Folder, ChevronRight, Settings, Check, Save } from "lucide-react";
 import { VideoClip, WorkflowState } from "../types";
 
 interface SidebarProps {
   apiKey: string;
   onChangeApiKey: (key: string) => void;
+  onSaveApiKey: (key: string) => void;
   clips: VideoClip[];
   activeClipId: string | null;
   onSelectClip: (clipId: string) => void;
@@ -20,12 +21,24 @@ interface SidebarProps {
 export default function Sidebar({
   apiKey,
   onChangeApiKey,
+  onSaveApiKey,
   clips,
   activeClipId,
   onSelectClip,
   onAddBlankClip,
   state,
 }: SidebarProps) {
+  const [savedKey, setSavedKey] = useState(apiKey);
+  const [showSaved, setShowSaved] = useState(false);
+  const isDirty = apiKey !== savedKey;
+  const isDemoKey = apiKey.toLowerCase().includes("demo") || apiKey.includes("••••");
+
+  const handleSave = () => {
+    onSaveApiKey(apiKey);
+    setSavedKey(apiKey);
+    setShowSaved(true);
+    setTimeout(() => setShowSaved(false), 2000);
+  };
   return (
     <aside className="w-full lg:w-80 bg-[#161618] text-slate-300 rounded-2xl flex flex-col justify-between border border-white/5 p-5 space-y-6" id="app-sidebar">
       <div className="space-y-6">
@@ -56,17 +69,44 @@ export default function Sidebar({
               Get Key
             </a>
           </div>
-          <input
-            type="password"
-            className="w-full px-3 py-2 bg-[#1f1f22] border border-white/10 focus:border-orange-500/50 rounded-xl text-xs text-white placeholder:text-slate-600 focus:outline-none transition-colors"
-            placeholder="Enter Agnes API Key..."
-            value={apiKey}
-            onChange={(e) => onChangeApiKey(e.target.value)}
-          />
-          {!apiKey && (
+          <div className="flex gap-1.5">
+            <input
+              type="password"
+              className="flex-1 min-w-0 px-3 py-2 bg-[#1f1f22] border border-white/10 focus:border-orange-500/50 rounded-xl text-xs text-white placeholder:text-slate-600 focus:outline-none transition-colors"
+              placeholder="Enter Agnes API Key..."
+              value={apiKey}
+              onChange={(e) => onChangeApiKey(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleSave(); }}
+            />
+            <button
+              onClick={handleSave}
+              disabled={!isDirty && !showSaved}
+              className={`flex-shrink-0 px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+                showSaved
+                  ? "bg-green-600/20 border border-green-500/30 text-green-400"
+                  : isDirty
+                    ? "bg-orange-500/20 border border-orange-500/30 text-orange-400 hover:bg-orange-500/30"
+                    : "bg-[#1f1f22] border border-white/5 text-slate-600"
+              }`}
+            >
+              {showSaved ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
+              {showSaved ? "Saved" : "Save"}
+            </button>
+          </div>
+          {!apiKey ? (
             <p className="text-[10px] text-orange-400/80 flex items-center gap-1 leading-relaxed">
               <AlertCircle className="w-3 h-3 flex-shrink-0" />
               API Key is required to call models. Your key remains safe in local storage.
+            </p>
+          ) : isDemoKey ? (
+            <p className="text-[10px] text-yellow-400/80 flex items-center gap-1 leading-relaxed">
+              <AlertCircle className="w-3 h-3 flex-shrink-0" />
+              Demo mode — all outputs are simulated. Enter a real key for actual API calls.
+            </p>
+          ) : (
+            <p className="text-[10px] text-green-400/80 flex items-center gap-1 leading-relaxed">
+              <Check className="w-3 h-3 flex-shrink-0" />
+              Real API key — calls Agnes API directly.
             </p>
           )}
         </div>

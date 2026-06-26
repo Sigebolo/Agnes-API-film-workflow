@@ -249,7 +249,7 @@ async function getSimulatedChat(userPrompt: string) {
 // Helper: Simulated Image Generation
 function getSimulatedImage(prompt: string) {
   const pClean = prompt.toLowerCase();
-  let imageUrl = "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&q=80&w=800"; // default digital space
+  let imageUrl = "https://images.unsplash.com/photo-1500622944204-b135684e99fd?auto=format&fit=crop&q=80&w=800"; // default landscape
 
   // Custom presets first
   if (pClean.includes("scorpion") || pClean.includes("蝎子")) {
@@ -284,8 +284,41 @@ function getSimulatedImage(prompt: string) {
       .filter(word => word.length > 2 && !stopWords.has(word));
       
     if (words.length > 0) {
-      const query = encodeURIComponent(words.slice(0, 3).join(","));
-      imageUrl = `https://images.unsplash.com/featured/?${query}`;
+      // Use valid Unsplash photo URLs with keyword-based selection
+      const keywordToPhoto: Record<string, string> = {
+        bird: "photo-1444464666168-49d633b86797",
+        eagle: "photo-1611689342806-0863700ce8e4",
+        kiwi: "photo-1444464666168-49d633b86797",
+        parrot: "photo-1444464666168-49d633b86797",
+        owl: "photo-1444464666168-49d633b86797",
+        cat: "photo-1514888286974-6c03e2ca1dba",
+        dog: "photo-1587300003388-59208cc962cb",
+        lion: "photo-1474511320723-9a56873571b7",
+        tiger: "photo-1474511320723-9a56873571b7",
+        bear: "photo-1474511320723-9a56873571b7",
+        wolf: "photo-1474511320723-9a56873571b7",
+        dragon: "photo-1518709268805-4e9042af9f23",
+        robot: "photo-1485827404703-89b55fcc595e",
+        car: "photo-1492144534655-ae79c964c9d7",
+        tree: "photo-1501854140801-50d01698950b",
+        forest: "photo-1501854140801-50d01698950b",
+        city: "photo-1477959858617-67f85cf4f1df",
+        space: "photo-1446776811953-b23d57bd21aa",
+        woman: "photo-1534528741775-53994a69daeb",
+        man: "photo-1507003211169-0a1dd7228f2d",
+        portrait: "photo-1544005313-94ddf0286df2",
+      };
+
+      // Priority: animals/objects > person keywords > fallback
+      const allMatches = words.filter(w => keywordToPhoto[w]);
+      const priorityKeys = ["bird", "eagle", "kiwi", "parrot", "owl", "cat", "dog", "lion", "tiger", "bear", "wolf", "dragon", "robot", "car", "tree", "forest", "city", "space"];
+      const bestMatch = allMatches.find(w => priorityKeys.includes(w)) || allMatches[0];
+
+      if (bestMatch) {
+        imageUrl = `https://images.unsplash.com/${keywordToPhoto[bestMatch]}?auto=format&fit=crop&q=80&w=800`;
+      } else {
+        imageUrl = "https://images.unsplash.com/photo-1500622944204-b135684e99fd?auto=format&fit=crop&q=80&w=800";
+      }
     }
   }
 
@@ -346,7 +379,7 @@ app.post("/api/analyze-character", async (req, res) => {
   if (!isDemo && authHeader) {
     try {
       console.log("Calling real Agnes API to extract/anchor character features...");
-      const response = await fetch("https://platform.agnes-ai.com/v1/chat/completions", {
+      const response = await fetch("https://apihub.agnes-ai.com/v1/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -442,7 +475,7 @@ app.post("/api/proxy/chat", async (req, res) => {
   }
 
   try {
-    const response = await fetch("https://platform.agnes-ai.com/v1/chat/completions", {
+    const response = await fetch("https://apihub.agnes-ai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -476,7 +509,9 @@ app.post("/api/proxy/images", async (req, res) => {
   }
 
   const prompt = req.body.prompt || "cinematic scene";
+  const keyPreview = authHeader.slice(0, 20) + "...";
   const isDemo = authHeader.includes("••••") || authHeader.toLowerCase().includes("demo") || authHeader.toLowerCase().includes("mock");
+  console.log(`[Image API] Key: ${keyPreview} | isDemo: ${isDemo}`);
 
   if (isDemo) {
     console.log("Using local simulator for Image request");
@@ -485,20 +520,28 @@ app.post("/api/proxy/images", async (req, res) => {
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000); // 6s timeout
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
 
-    const response = await fetch("https://platform.agnes-ai.com/v1/images/generations", {
+    const requestBody = JSON.stringify(req.body);
+    console.log(`[Image API] → POST https://apihub.agnes-ai.com/v1/images/generations`);
+    console.log(`[Image API] Body: ${requestBody.slice(0, 500)}`);
+
+    const response = await fetch("https://apihub.agnes-ai.com/v1/images/generations", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": authHeader,
       },
-      body: JSON.stringify(req.body),
+      body: requestBody,
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
 
+    console.log(`[Image API] ← Status: ${response.status}`);
+
     const responseText = await response.text();
+    console.log(`[Image API] Response: ${responseText.slice(0, 300)}`);
+
     try {
       const data = JSON.parse(responseText);
       if (response.ok && data.data?.[0]?.url) {
@@ -531,9 +574,12 @@ app.post("/api/proxy/videos", async (req, res) => {
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000); // 8s timeout
+    const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 min timeout for video generation
 
-    const response = await fetch("https://platform.agnes-ai.com/v1/videos/generations", {
+    console.log(`[Video API] → POST https://apihub.agnes-ai.com/v1/video/generations`);
+    console.log(`[Video API] Body: ${JSON.stringify(req.body).slice(0, 500)}`);
+
+    const response = await fetch("https://apihub.agnes-ai.com/v1/video/generations", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -571,7 +617,7 @@ app.get("/api/proxy/status", async (req, res) => {
   const { video_id, task_id } = req.query;
   const targetId = (video_id || task_id) as string || "unknown";
 
-  const isDemo = authHeader.includes("••••") || authHeader.toLowerCase().includes("demo") || authHeader.toLowerCase().includes("mock") || targetId.startsWith("sim_");
+  const isDemo = authHeader.includes("••••") || authHeader.toLowerCase().includes("demo") || authHeader.toLowerCase().includes("mock");
 
   if (isDemo) {
     console.log("Using local simulator for Video status request");
@@ -580,16 +626,18 @@ app.get("/api/proxy/status", async (req, res) => {
 
   let targetUrl = "";
   if (video_id) {
-    targetUrl = `https://platform.agnes-ai.com/agnesapi?video_id=${video_id}`;
+    targetUrl = `https://apihub.agnes-ai.com/agnesapi?video_id=${video_id}`;
   } else if (task_id) {
-    targetUrl = `https://platform.agnes-ai.com/v1/videos/tasks/${task_id}`;
+    targetUrl = `https://apihub.agnes-ai.com/v1/videos/tasks/${task_id}`;
   } else {
     return res.status(400).json({ error: "Required query parameter video_id or task_id is missing" });
   }
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout for status check
+
+    console.log(`[Video Status] → GET ${targetUrl}`);
 
     const response = await fetch(targetUrl, {
       method: "GET",
@@ -895,7 +943,7 @@ async function pollAgnesVideoStatus(
     if (ws.readyState !== WebSocket.OPEN) return;
 
     try {
-      const targetUrl = `https://platform.agnes-ai.com/agnesapi?video_id=${videoId}`;
+      const targetUrl = `https://apihub.agnes-ai.com/agnesapi?video_id=${videoId}`;
       const response = await fetch(targetUrl, {
         headers: { Authorization: `Bearer ${apiKey}` },
         signal: AbortSignal.timeout(8000),

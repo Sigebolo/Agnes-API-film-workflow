@@ -33,7 +33,7 @@ export interface VideoClip {
 
 export type TaskStatus = 'idle' | 'generating' | 'polling' | 'completed' | 'failed';
 
-export type AppStep = 'prompt' | 'character' | 'image' | 'video' | 'timeline';
+export type AppStep = 'prompt' | 'image' | 'video' | 'timeline';
 
 export interface WorkflowState {
   apiKey: string;

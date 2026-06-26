@@ -12,6 +12,7 @@ interface ImageHistoryPanelProps {
   onSelect: (image: HistoryImage) => void;
   onCompare?: (images: HistoryImage[]) => void;
   onDragStart?: (image: HistoryImage) => void;
+  onReorder?: (fromIndex: number, toIndex: number) => void;
 }
 
 export default function ImageHistoryPanel({
@@ -19,9 +20,12 @@ export default function ImageHistoryPanel({
   onSelect,
   onCompare,
   onDragStart,
+  onReorder,
 }: ImageHistoryPanelProps) {
   const [compareMode, setCompareMode] = useState(false);
   const [selectedForCompare, setSelectedForCompare] = useState<string[]>([]);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
   const toggleCompare = () => {
     if (compareMode) {
@@ -104,7 +108,7 @@ export default function ImageHistoryPanel({
 
       {/* Image Grid */}
       <div className="p-2 grid grid-cols-3 gap-2 max-h-60 overflow-y-auto">
-        {images.map((image) => (
+        {images.map((image, index) => (
           <div
             key={image.id}
             className={`relative group cursor-pointer rounded-lg overflow-hidden border-2 transition-all ${
@@ -112,26 +116,55 @@ export default function ImageHistoryPanel({
                 ? selectedForCompare.includes(image.id)
                   ? "border-blue-500 ring-2 ring-blue-500/30"
                   : "border-transparent hover:border-slate-600"
-                : "border-transparent hover:border-orange-500/50"
+                : dragOverIndex === index
+                  ? "border-orange-500 bg-orange-500/10"
+                  : "border-transparent hover:border-orange-500/50"
             }`}
             onClick={() =>
               compareMode
                 ? toggleImageSelection(image.id)
                 : onSelect(image)
             }
+            draggable={!!onReorder}
+            onDragStart={(e) => {
+              if (onReorder) {
+                e.dataTransfer.setData("text/plain", index.toString());
+                e.dataTransfer.effectAllowed = "move";
+                setDraggedIndex(index);
+              } else if (onDragStart) {
+                e.dataTransfer.setData("application/json", JSON.stringify(image));
+                e.dataTransfer.effectAllowed = "copy";
+                onDragStart(image);
+              }
+            }}
+            onDragOver={(e) => {
+              if (onReorder) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                setDragOverIndex(index);
+              }
+            }}
+            onDragLeave={() => setDragOverIndex(null)}
+            onDrop={(e) => {
+              if (onReorder) {
+                e.preventDefault();
+                const fromIndex = parseInt(e.dataTransfer.getData("text/plain"));
+                if (!isNaN(fromIndex) && fromIndex !== index) {
+                  onReorder(fromIndex, index);
+                }
+                setDragOverIndex(null);
+                setDraggedIndex(null);
+              }
+            }}
+            onDragEnd={() => {
+              setDragOverIndex(null);
+              setDraggedIndex(null);
+            }}
           >
             <img
               src={image.url}
               alt={image.prompt}
               className="w-full aspect-square object-cover"
-              draggable={!!onDragStart}
-              onDragStart={(e) => {
-                if (onDragStart) {
-                  e.dataTransfer.setData("application/json", JSON.stringify(image));
-                  e.dataTransfer.effectAllowed = "copy";
-                  onDragStart(image);
-                }
-              }}
             />
             {/* Overlay */}
             <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
@@ -140,7 +173,7 @@ export default function ImageHistoryPanel({
                   {image.prompt.slice(0, 30)}
                 </p>
               </div>
-              {onDragStart && (
+              {(onDragStart || onReorder) && (
                 <div className="absolute top-1 right-1">
                   <GripVertical className="w-3 h-3 text-white/60" />
                 </div>
@@ -178,10 +211,10 @@ export default function ImageHistoryPanel({
       </div>
 
       {/* Drag Hint */}
-      {onDragStart && images.length > 0 && (
+      {(onDragStart || onReorder) && images.length > 0 && (
         <div className="px-3 py-1.5 border-t border-white/5 text-center">
           <p className="text-[9px] text-slate-600 italic">
-            Drag to use in next step
+            {onReorder ? "Drag to reorder • " : ""}{onDragStart ? "Drag to use in next step" : ""}
           </p>
         </div>
       )}

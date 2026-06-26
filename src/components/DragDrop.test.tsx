@@ -21,11 +21,12 @@ describe('ImageHistoryPanel - Drag and Drop', () => {
     vi.clearAllMocks();
   });
 
-  it('images are draggable', () => {
-    render(<ImageHistoryPanel images={mockImages} onSelect={mockOnSelect} onDragStart={mockOnDragStart} />);
+  it('images are draggable when onReorder provided', () => {
+    render(<ImageHistoryPanel images={mockImages} onSelect={mockOnSelect} onDragStart={mockOnDragStart} onReorder={vi.fn()} />);
     const images = screen.getAllByRole('img');
     images.forEach(img => {
-      expect(img).toHaveAttribute('draggable', 'true');
+      // draggable is on the parent div, not the img
+      expect(img.parentElement).toHaveAttribute('draggable', 'true');
     });
   });
 

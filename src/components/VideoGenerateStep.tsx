@@ -4,9 +4,10 @@
  */
 
 import React, { useState, useRef, useEffect } from "react";
-import { Film, Sparkles, RefreshCw, Save, ArrowLeft, Plus, CheckCircle, ArrowRight, Hourglass, AlertTriangle, RotateCw } from "lucide-react";
+import { Film, Sparkles, RefreshCw, Save, ArrowLeft, Plus, CheckCircle, ArrowRight, Hourglass, AlertTriangle, RotateCw, Image as ImageIcon } from "lucide-react";
 import { VideoClip } from "../types";
 import { createVideoTaskApi, subscribeVideoProgress } from "../utils/api";
+import { compressImage, getImageSizeInfo } from "../utils/imageCompress";
 import { ToastItem, createToast } from "./Toast";
 
 interface VideoGenerateStepProps {
@@ -112,14 +113,39 @@ export default function VideoGenerateStep({
     setVideoLogs([
       "🔄 Initializing video generation pipeline...",
       "📡 Constructing Frame-to-Video parameters...",
-      "🌐 Uploading reference keyframe to Agnes neural cluster..."
+      "🌐 Compressing reference keyframe for faster upload..."
     ]);
 
     try {
+      // Compress image before uploading
+      let imageUrlToSend = activeClip.imageUrl;
+      if (activeClip.imageUrl) {
+        try {
+          const compressed = await compressImage(activeClip.imageUrl, 1024, 0.8);
+          const sizeInfo = getImageSizeInfo(compressed);
+          imageUrlToSend = compressed;
+          setVideoLogs(prev => [
+            ...prev,
+            `📐 Image compressed: ${sizeInfo.sizeKB}KB (${sizeInfo.sizeMB}MB)`
+          ]);
+        } catch (compressErr) {
+          // If compression fails, use original
+          setVideoLogs(prev => [
+            ...prev,
+            "⚠️ Compression failed, using original image"
+          ]);
+        }
+      }
+
+      setVideoLogs(prev => [
+        ...prev,
+        "🌐 Uploading reference keyframe to Agnes neural cluster..."
+      ]);
+
       const { video_id, task_id } = await createVideoTaskApi(
         apiKey,
         activeClip.videoPrompt,
-        activeClip.imageUrl
+        imageUrlToSend
       );
 
       const resolvedJobId = video_id || task_id || "VID-" + Math.random().toString(36).substr(2, 9).toUpperCase();

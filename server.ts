@@ -591,6 +591,8 @@ app.post("/api/proxy/videos", async (req, res) => {
     clearTimeout(timeoutId);
 
     const responseText = await response.text();
+    console.log(`[Video API] ← Status: ${response.status}`);
+    console.log(`[Video API] Response: ${responseText.slice(0, 500)}`);
     try {
       const data = JSON.parse(responseText);
       if (response.ok && (data.task_id || data.video_id)) {

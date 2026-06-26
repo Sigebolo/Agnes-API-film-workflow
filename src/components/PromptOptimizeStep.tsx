@@ -629,8 +629,8 @@ export default function PromptOptimizeStep({
                 {/* Sheet Preview */}
                 <div className="relative rounded-xl overflow-hidden border border-white/5 bg-[#09090A] flex items-center justify-center min-h-[180px]">
                   <img
-                    src={characterAnchor.sheetUrl}
-                    alt="Character reference"
+                    src={characterAnchor.viewUrls[previewAngle as keyof typeof characterAnchor.viewUrls] || characterAnchor.sheetUrl}
+                    alt={`Character reference - ${previewAngle}`}
                     referrerPolicy="no-referrer"
                     className="w-full h-auto max-h-[250px] object-contain"
                   />

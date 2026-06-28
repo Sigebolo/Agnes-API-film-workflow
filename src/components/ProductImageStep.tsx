@@ -27,7 +27,7 @@ const SCENE_LABELS: Record<MarketingScene, string> = {
 export default function ProductImageStep({ apiKey, product, onBack, onNext }: ProductImageStepProps) {
   const [inputMode, setInputMode] = useState<"upload" | "text">("upload");
   const [sourceImage, setSourceImage] = useState<string | undefined>();
-  const [textDesc, setTextDesc] = useState("");
+  const [textDesc, setTextDesc] = useState(product.description || "");
   const [variants, setVariants] = useState<MarketingVariant[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [selectedId, setSelectedId] = useState<string | undefined>();
@@ -37,6 +37,7 @@ export default function ProductImageStep({ apiKey, product, onBack, onNext }: Pr
   const handleGenerate = async () => {
     if (!canGenerate) return;
 
+    console.log("[ProductImageStep] Starting generation...", { inputMode, textDesc, sourceImage });
     setIsGenerating(true);
     try {
       const result = await generateProductImageApi(
@@ -46,6 +47,7 @@ export default function ProductImageStep({ apiKey, product, onBack, onNext }: Pr
         inputMode === "text" ? textDesc : undefined
       );
 
+      console.log("[ProductImageStep] Got prompts:", result);
       const scenes: MarketingScene[] = ["ecommerce", "social", "poster"];
       const newVariants: MarketingVariant[] = result.variants.map((prompt, i) => ({
         id: `img_${Date.now()}_${i}`,
@@ -159,10 +161,12 @@ export default function ProductImageStep({ apiKey, product, onBack, onNext }: Pr
   };
 
   const handleNext = () => {
+    // Use first completed variant or source image
+    const completedVariant = variants.find(v => v.status === "completed" && v.imageUrl);
     onNext({
       id: `product_img_${Date.now()}`,
       product,
-      sourceImageUrl: sourceImage,
+      sourceImageUrl: completedVariant?.imageUrl || sourceImage,
       sourceTextDesc: inputMode === "text" ? textDesc : undefined,
       variants,
       createdAt: Date.now(),
@@ -188,15 +192,13 @@ export default function ProductImageStep({ apiKey, product, onBack, onNext }: Pr
               <p className="text-xs text-slate-400 mt-1">Upload product image or describe it, AI generates marketing variants</p>
             </div>
           </div>
-          {completedCount > 0 && (
-            <button
-              onClick={handleNext}
-              className="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:brightness-110 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all"
-            >
-              Next: Generate Video
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          )}
+          <button
+            onClick={handleNext}
+            className="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:brightness-110 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all"
+          >
+            Next: Generate Video
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
         </div>
 
         <div className="grid lg:grid-cols-3 gap-6">

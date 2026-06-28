@@ -348,11 +348,11 @@ export default function App() {
                           />
                         )}
 
-                        {adStep === "ad-video" && imageResult && (
+                        {adStep === "ad-video" && (
                           <AdVideoStep
                             apiKey={state.apiKey}
                             product={adProduct}
-                            sourceImageUrl={imageResult.sourceImageUrl || ""}
+                            sourceImageUrl={imageResult?.sourceImageUrl || logoResult?.variants?.find(v => v.imageUrl)?.imageUrl || ""}
                             adCopy={adProduct.description}
                             onBack={handleAdBack}
                             onComplete={handleVideoComplete}

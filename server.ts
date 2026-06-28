@@ -946,8 +946,8 @@ app.post("/api/ad-video/generate-prompt", async (req, res) => {
   }
 
   const { product, imageUrl, adCopy, characterName, dialogue } = req.body;
-  if (!product || !product.name || !imageUrl) {
-    return res.status(400).json({ error: "Missing product info or image URL" });
+  if (!product || !product.name) {
+    return res.status(400).json({ error: "Missing product info" });
   }
 
   const isDemo = authHeader.includes("••••") || authHeader.toLowerCase().includes("demo") || authHeader.toLowerCase().includes("mock");
@@ -1064,6 +1064,50 @@ Output format (JSON):
 });
 
 // ==========================================
+// ==========================================
+// 4.6 VIDEO TRIM API
+// ==========================================
+
+app.post("/api/video/trim", async (req, res) => {
+  const { videoUrl, startTime, endTime } = req.body;
+
+  if (!videoUrl || startTime === undefined || endTime === undefined) {
+    return res.status(400).json({ error: "Missing videoUrl, startTime, or endTime" });
+  }
+
+  try {
+    // Download video
+    const tempDir = path.join(UPLOADS_DIR, "temp");
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    const inputPath = path.join(tempDir, `input_${Date.now()}.mp4`);
+    const outputPath = path.join(UPLOADS_DIR, `trimmed_${Date.now()}.mp4`);
+
+    await downloadFile(videoUrl, inputPath);
+
+    // Use FFmpeg to trim
+    const { execSync } = await import("child_process");
+    const duration = endTime - startTime;
+    const ffmpegCmd = `ffmpeg -i "${inputPath}" -ss ${startTime} -t ${duration} -c copy "${outputPath}" -y`;
+
+    execSync(ffmpegCmd, { stdio: "pipe" });
+
+    // Clean up temp file
+    fs.unlinkSync(inputPath);
+
+    // Return trimmed video URL
+    const trimmedFilename = path.basename(outputPath);
+    const trimmedUrl = `/uploads/${trimmedFilename}`;
+
+    return res.json({ trimmedUrl, duration });
+  } catch (error: any) {
+    console.error("Video trim error:", error);
+    return res.status(500).json({ error: error.message || "Failed to trim video" });
+  }
+});
+
 // ==========================================
 // 5. VITE MIDDLEWARE & STATIC SERVING
 // ==========================================

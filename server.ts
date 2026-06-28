@@ -13,9 +13,6 @@ import { createServer as createViteServer } from "vite";
 const app = express();
 const PORT = 3000;
 
-// Disabled Gemini client as requested; only using Agnes AI API.
-const ai = null;
-
 // Ensure uploads directory exists
 const UPLOADS_DIR = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(UPLOADS_DIR)) {
@@ -69,7 +66,7 @@ function formatVttTime(seconds: number): string {
 }
 
 // ==========================================
-// 1. AGNES AI PROXY ROUTES & SIMULATORS
+// 1. AGNES AI PROXY ROUTES
 // ==========================================
 
 // Helper: Translation using the free Google Translate API
@@ -90,279 +87,6 @@ async function translateToEnglish(text: string): Promise<string> {
     console.warn("Free translation API failed, utilizing local dictionary:", err);
   }
   return "";
-}
-
-// Helper: Simulated Chat/Completions
-async function getSimulatedChat(userPrompt: string) {
-  let cleanPrompt = userPrompt;
-  if (userPrompt.includes("Action/scene description:")) {
-    const match = userPrompt.match(/Action\/scene description:\s*(.*)/i);
-    if (match) cleanPrompt = match[1];
-  } else if (userPrompt.includes("Scene:")) {
-    const match = userPrompt.match(/Scene:\s*(.*)/i);
-    if (match) cleanPrompt = match[1];
-  }
-
-  let translatedPrompt = cleanPrompt;
-
-  // If Gemini is disabled, try to use the online free translation API first
-  const hasChinese = /[\u4e00-\u9fa5]/.test(cleanPrompt);
-  if (hasChinese) {
-    const apiTranslated = await translateToEnglish(cleanPrompt);
-    if (apiTranslated) {
-      translatedPrompt = apiTranslated;
-    } else {
-      // fallback to static dictionary
-      const dict: { [key: string]: string } = {
-        "一个": "a ",
-        "蝎子": "scorpion ",
-        "蜈蚣": "centipede ",
-        "打架": "fighting ",
-        "对决": "duel ",
-        "对战": "battle ",
-        "撕咬": "fighting ",
-        "打斗": "clashing ",
-        "昆虫": "insect ",
-        "红发": "red-haired ",
-        "宇航员": "astronaut ",
-        "宇航服": "spacesuit ",
-        "火星": "Mars ",
-        "基地": "base ",
-        "咖啡": "coffee ",
-        "喝咖啡": "drinking coffee ",
-        "落日": "sunset ",
-        "晚霞": "sunset glow ",
-        "赛步": "cyberpunk ",
-        "赛博朋克": "cyberpunk ",
-        "赛博": "cyberpunk ",
-        "高科技": "high-tech ",
-        "霓虹灯": "neon lights ",
-        "霓虹": "neon ",
-        "城市": "city ",
-        "街道": "street ",
-        "雨": "rain ",
-        "雨天": "rainy day ",
-        "废墟": "ruins ",
-        "机械": "mecha ",
-        "装甲": "armored ",
-        "光剑": "lightsaber ",
-        "发光": "glowing ",
-        "战斗": "fighting ",
-        "飞行": "flying ",
-        "悬浮": "hovering ",
-        "探索": "exploring ",
-        "发现": "discovering ",
-        "秘密": "secret ",
-        "古代": "ancient ",
-        "神殿": "temple ",
-        "废土": "wasteland ",
-        "末日": "apocalyptic ",
-        "赛车": "racing car ",
-        "星门": "stargate ",
-        "传送门": "portal ",
-        "外星": "alien ",
-        "外星人": "alien ",
-        "怪物": "monster ",
-        "深海": "deep sea ",
-        "潜水艇": "submarine ",
-        "冰川": "glacier ",
-        "雪山": "snow mountain ",
-        "沙漠": "desert ",
-        "风暴": "storm ",
-        "闪电": "lightning ",
-        "火焰": "fire ",
-        "水": "water ",
-        "云": "clouds ",
-        "光线": "light beams ",
-        "丁达尔光": "Tyndall effect, volumetric light ",
-        "慢动作": "slow motion ",
-        "特写": "close-up ",
-        "全景": "panoramic view ",
-        "俯瞰": "high angle shot ",
-        "仰视": "low angle shot ",
-        "唯美": "aesthetic ",
-        "真实": "photorealistic ",
-        "写实": "realistic ",
-        "插画": "illustration ",
-        "动漫": "anime ",
-        "手绘": "hand-drawn ",
-        "电影感": "cinematic ",
-        "科幻": "sci-fi ",
-        "女孩": "girl ",
-        "女人": "woman ",
-        "男人": "man ",
-        "男孩": "boy ",
-        "森林": "forest ",
-        "喝": "sipping ",
-        "在": "in ",
-        "背景": "background ",
-        "巨型": "colossal ",
-        "巨大": "huge ",
-        "峡谷": "canyon ",
-        "看着": "looking at ",
-        "观赏": "viewing ",
-        "飞船": "spaceship ",
-        "星空": "starry sky ",
-        "机器人": "robot ",
-        "猫": "cat ",
-        "狗": "dog ",
-        "湖泊": "lake ",
-        "山脉": "mountain ",
-        "太阳": "sun ",
-        "月亮": "moon ",
-        "未来": "futuristic ",
-        "穿着": "wearing ",
-        "摄影": "photography ",
-        "和": "and ",
-        "里": "inside "
-      };
-
-      let translated = cleanPrompt;
-      for (const [key, value] of Object.entries(dict)) {
-        translated = translated.split(key).join(value);
-      }
-      
-      translated = translated.replace(/[\u4e00-\u9fa5]/g, "").trim();
-      if (!translated) {
-        translated = "a sci-fi cinematic scene";
-      }
-      translatedPrompt = translated;
-    }
-  }
-
-  const optimized = translatedPrompt.toLowerCase().includes("masterpiece") || translatedPrompt.toLowerCase().includes("cinematic")
-    ? translatedPrompt
-    : `A highly detailed, cinematic 8k masterpiece of ${translatedPrompt.trim()}. Rich textures, dramatic composition, exquisite volumetric lighting, shot on 35mm lens, photorealistic sci-fi style, highly dense atmosphere, Agnes AI optimized.`;
-
-  return {
-    choices: [
-      {
-        message: {
-          role: "assistant",
-          content: optimized
-        }
-      }
-    ]
-  };
-}
-
-// Helper: Simulated Image Generation
-function getSimulatedImage(prompt: string) {
-  const pClean = prompt.toLowerCase();
-  let imageUrl = "https://images.unsplash.com/photo-1500622944204-b135684e99fd?auto=format&fit=crop&q=80&w=800"; // default landscape
-
-  // Custom presets first
-  if (pClean.includes("scorpion") || pClean.includes("蝎子")) {
-    imageUrl = "https://images.unsplash.com/photo-1551244072-5d12893278ab?auto=format&fit=crop&q=80&w=800";
-  } else if (pClean.includes("centipede") || pClean.includes("蜈蚣")) {
-    imageUrl = "https://images.unsplash.com/photo-1548247416-ec66f4900b2e?auto=format&fit=crop&q=80&w=800";
-  } else if (pClean.includes("insect") || pClean.includes("bug") || pClean.includes("昆虫")) {
-    imageUrl = "https://images.unsplash.com/photo-1576082900999-489a88eb4831?auto=format&fit=crop&q=80&w=800";
-  } else if (pClean.includes("battle") || pClean.includes("fight") || pClean.includes("clash") || pClean.includes("打架") || pClean.includes("对战") || pClean.includes("对决")) {
-    imageUrl = "https://images.unsplash.com/photo-1559650656-5d1d361ad10e?auto=format&fit=crop&q=80&w=800";
-  } else if (pClean.includes("astronaut") || pClean.includes("mars") || pClean.includes("space") || pClean.includes("planet") || pClean.includes("star")) {
-    imageUrl = "https://images.unsplash.com/photo-1614728263952-84ea256f9679?auto=format&fit=crop&q=80&w=800";
-  } else if (pClean.includes("cyberpunk") || pClean.includes("neon") || pClean.includes("city") || pClean.includes("future") || pClean.includes("tokyo")) {
-    imageUrl = "https://images.unsplash.com/photo-1515621061946-eff1c2a352bd?auto=format&fit=crop&q=80&w=800";
-  } else if (pClean.includes("forest") || pClean.includes("tree") || pClean.includes("nature") || pClean.includes("mountain") || pClean.includes("lake")) {
-    imageUrl = "https://images.unsplash.com/photo-1501854140801-50d01698950b?auto=format&fit=crop&q=80&w=800";
-  } else if (pClean.includes("human") || pClean.includes("girl") || pClean.includes("man") || pClean.includes("woman") || pClean.includes("face") || pClean.includes("portrait")) {
-    imageUrl = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=800";
-  } else {
-    // Extract subject keywords
-    const stopWords = new Set([
-      "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for", "with", "by", "of", "from",
-      "highly", "detailed", "cinematic", "8k", "masterpiece", "rich", "textures", "dramatic", "composition",
-      "exquisite", "volumetric", "lighting", "shot", "lens", "photorealistic", "style", "dense", "atmosphere",
-      "agnes", "ai", "optimized", "animate", "subtle", "camera", "movement", "panning", "emphasizing", "details",
-      "scene", "realistic"
-    ]);
-    
-    const words = pClean
-      .replace(/[^\w\s]/g, " ")
-      .split(/\s+/)
-      .filter(word => word.length > 2 && !stopWords.has(word));
-      
-    if (words.length > 0) {
-      // Use valid Unsplash photo URLs with keyword-based selection
-      const keywordToPhoto: Record<string, string> = {
-        bird: "photo-1444464666168-49d633b86797",
-        eagle: "photo-1611689342806-0863700ce8e4",
-        kiwi: "photo-1444464666168-49d633b86797",
-        parrot: "photo-1444464666168-49d633b86797",
-        owl: "photo-1444464666168-49d633b86797",
-        cat: "photo-1514888286974-6c03e2ca1dba",
-        dog: "photo-1587300003388-59208cc962cb",
-        lion: "photo-1474511320723-9a56873571b7",
-        tiger: "photo-1474511320723-9a56873571b7",
-        bear: "photo-1474511320723-9a56873571b7",
-        wolf: "photo-1474511320723-9a56873571b7",
-        dragon: "photo-1518709268805-4e9042af9f23",
-        robot: "photo-1485827404703-89b55fcc595e",
-        car: "photo-1492144534655-ae79c964c9d7",
-        tree: "photo-1501854140801-50d01698950b",
-        forest: "photo-1501854140801-50d01698950b",
-        city: "photo-1477959858617-67f85cf4f1df",
-        space: "photo-1446776811953-b23d57bd21aa",
-        woman: "photo-1534528741775-53994a69daeb",
-        man: "photo-1507003211169-0a1dd7228f2d",
-        portrait: "photo-1544005313-94ddf0286df2",
-      };
-
-      // Priority: animals/objects > person keywords > fallback
-      const allMatches = words.filter(w => keywordToPhoto[w]);
-      const priorityKeys = ["bird", "eagle", "kiwi", "parrot", "owl", "cat", "dog", "lion", "tiger", "bear", "wolf", "dragon", "robot", "car", "tree", "forest", "city", "space"];
-      const bestMatch = allMatches.find(w => priorityKeys.includes(w)) || allMatches[0];
-
-      if (bestMatch) {
-        imageUrl = `https://images.unsplash.com/${keywordToPhoto[bestMatch]}?auto=format&fit=crop&q=80&w=800`;
-      } else {
-        imageUrl = "https://images.unsplash.com/photo-1500622944204-b135684e99fd?auto=format&fit=crop&q=80&w=800";
-      }
-    }
-  }
-
-  // Force cache bust to trigger browser reload/refresh in React
-  const finalUrl = `${imageUrl}${imageUrl.includes("?") ? "&" : "?"}sig=${Math.floor(Math.random() * 100000)}`;
-
-  return {
-    data: [
-      {
-        url: finalUrl
-      }
-    ]
-  };
-}
-
-// Helper: Simulated Video Creation Task
-function getSimulatedVideoTask() {
-  const id = `sim_${Math.random().toString(36).substr(2, 9)}`;
-  return {
-    task_id: id,
-    video_id: id
-  };
-}
-
-// Helper: Simulated Video Status / Polling
-function getSimulatedStatus(id: string) {
-  const videos = [
-    "https://assets.mixkit.co/videos/preview/mixkit-stars-in-space-background-1611-large.mp4",
-    "https://assets.mixkit.co/videos/preview/mixkit-tunnel-of-futuristic-blue-lights-42533-large.mp4",
-    "https://assets.mixkit.co/videos/preview/mixkit-forest-stream-in-the-sunlight-529-large.mp4",
-    "https://assets.mixkit.co/videos/preview/mixkit-abstract-laser-lights-background-glow-41983-large.mp4"
-  ];
-
-  let sum = 0;
-  for (let i = 0; i < id.length; i++) {
-    sum += id.charCodeAt(i);
-  }
-  const videoUrl = videos[sum % videos.length];
-
-  return {
-    status: "completed",
-    video_url: videoUrl,
-    urls: [videoUrl]
-  };
 }
 
 // API endpoint for smart character and style consistency feature anchoring
@@ -575,52 +299,71 @@ app.post("/api/proxy/videos", async (req, res) => {
     return res.status(400).json({ error: "Demo key detected. Please enter a real Agnes API key." });
   }
 
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 min timeout for video generation
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY_MS = 30000; // 30 seconds between retries
 
-    console.log(`[Video API] → POST https://apihub.agnes-ai.com/v1/video/generations`);
-    console.log(`[Video API] Body: ${JSON.stringify(req.body).slice(0, 500)}`);
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 min timeout
 
-    const response = await fetch("https://apihub.agnes-ai.com/v1/video/generations", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": authHeader,
-      },
-      body: JSON.stringify(req.body),
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
+      console.log(`[Video API] → POST https://apihub.agnes-ai.com/v1/video/generations (attempt ${attempt}/${MAX_RETRIES})`);
+      console.log(`[Video API] Body: ${JSON.stringify(req.body).slice(0, 500)}`);
 
-    const responseText = await response.text();
-    console.log(`[Video API] ← Status: ${response.status}`);
-    console.log(`[Video API] Response: ${responseText.slice(0, 500)}`);
+      const response = await fetch("https://apihub.agnes-ai.com/v1/video/generations", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": authHeader,
+        },
+        body: JSON.stringify(req.body),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
 
-    // If API returns error (503, 429, etc.), return error to client instead of fallback
-    if (!response.ok) {
+      const responseText = await response.text();
+      console.log(`[Video API] ← Status: ${response.status}`);
+      console.log(`[Video API] Response: ${responseText.slice(0, 500)}`);
+
+      if (response.ok) {
+        try {
+          const data = JSON.parse(responseText);
+          if (data.task_id || data.video_id) {
+            return res.status(response.status).json(data);
+          }
+          return res.status(400).json({ error: "Invalid response: missing task_id or video_id" });
+        } catch (e) {
+          return res.status(500).json({ error: "Failed to parse Agnes API response" });
+        }
+      }
+
+      // 503 Service Busy → retry
+      if (response.status === 503 && attempt < MAX_RETRIES) {
+        console.log(`[Video API] ⚠️ Service busy (attempt ${attempt}/${MAX_RETRIES}), retrying in ${RETRY_DELAY_MS / 1000}s...`);
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+        continue;
+      }
+
+      // Other errors or final attempt failed
       let errorMsg = `Agnes API error: ${response.status}`;
       try {
         const errData = JSON.parse(responseText);
         errorMsg = errData.message || errData.error?.message || errorMsg;
       } catch {}
-      return res.status(response.status).json({ error: errorMsg });
-    }
+      return res.status(response.status).json({ error: errorMsg, attempts: attempt });
 
-    try {
-      const data = JSON.parse(responseText);
-      if (data.task_id || data.video_id) {
-        return res.status(response.status).json(data);
+    } catch (error: any) {
+      console.error("Proxy Videos error:", error);
+      if (attempt < MAX_RETRIES) {
+        console.log(`[Video API] ⚠️ Network error (attempt ${attempt}/${MAX_RETRIES}), retrying in ${RETRY_DELAY_MS / 1000}s...`);
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+        continue;
       }
-      return res.status(400).json({ error: "Invalid response: missing task_id or video_id" });
-    } catch (e) {
-      return res.status(500).json({ error: "Failed to parse Agnes API response" });
+      return res.status(500).json({ error: error.message || "Failed to connect to Agnes API", attempts: attempt });
     }
-  } catch (error: any) {
-    console.error("Proxy Videos error:", error);
-    // Don't fall back to simulator - return error to client
-    return res.status(500).json({ error: error.message || "Failed to connect to Agnes API" });
   }
+
+  return res.status(503).json({ error: "Agnes API is busy. All retry attempts exhausted. Please try again later." });
 });
 
 // Proxy to Agnes API Tasks/Status
@@ -687,6 +430,26 @@ app.get("/api/proxy/status", async (req, res) => {
 // ==========================================
 // 2. TTS (TEXT TO SPEECH) ENDPOINT
 // ==========================================
+
+// Split text into ≤150-char chunks on sentence boundaries (Google TTS API limit ~200 chars)
+function splitTextIntoChunks(text: string, maxLen = 150): string[] {
+  const chunks: string[] = [];
+  const parts = text.split(/([.,!?;，。！？；\n]+)/g);
+  let current = "";
+  for (const part of parts) {
+    if (!part) continue;
+    if (current.length + part.length < maxLen) {
+      current += part;
+    } else {
+      if (current.trim()) chunks.push(current.trim());
+      current = part;
+    }
+  }
+  if (current.trim()) chunks.push(current.trim());
+  if (chunks.length === 0) chunks.push(text.slice(0, maxLen));
+  return chunks;
+}
+
 app.post("/api/tts", async (req, res) => {
   const { text, lang } = req.body;
   if (!text) {
@@ -695,28 +458,7 @@ app.post("/api/tts", async (req, res) => {
 
   try {
     const ttsLang = lang || "zh";
-    // Split text into chunks of max 150 characters (API limit is ~200)
-    const chunks: string[] = [];
-    const sentenceBoundary = /([.,!?;，。！？；\n]+)/g;
-    const parts = text.split(sentenceBoundary);
-    
-    let currentChunk = "";
-    for (const part of parts) {
-      if (!part) continue;
-      if (currentChunk.length + part.length < 150) {
-        currentChunk += part;
-      } else {
-        if (currentChunk.trim()) chunks.push(currentChunk.trim());
-        currentChunk = part;
-      }
-    }
-    if (currentChunk.trim()) {
-      chunks.push(currentChunk.trim());
-    }
-
-    if (chunks.length === 0) {
-      chunks.push(text.slice(0, 150));
-    }
+    const chunks = splitTextIntoChunks(text);
 
     // Fetch chunks and concatenate
     const buffers: Buffer[] = [];
@@ -743,10 +485,24 @@ app.post("/api/tts", async (req, res) => {
 // ==========================================
 // 3. VIDEO MERGING AND POST-PROCESSING ENDPOINT
 // ==========================================
+// Only allow downloading from Agnes CDN domains to prevent SSRF
+function isAllowedVideoUrl(rawUrl: string): boolean {
+  try {
+    const u = new URL(rawUrl);
+    const allowed = ["apihub.agnes-ai.com", "cdn.agnes-ai.com", "storage.googleapis.com"];
+    return u.protocol === "https:" && allowed.some((h) => u.hostname === h || u.hostname.endsWith("." + h));
+  } catch {
+    return false;
+  }
+}
+
 app.post("/api/merge", async (req, res) => {
   const { clips, lang } = req.body;
   if (!clips || !Array.isArray(clips) || clips.length === 0) {
     return res.status(400).json({ error: "Invalid clips list provided" });
+  }
+  if (clips.length > 20) {
+    return res.status(400).json({ error: "Maximum 20 clips per merge request" });
   }
 
   const runId = Date.now();
@@ -767,6 +523,10 @@ app.post("/api/merge", async (req, res) => {
       const clip = clips[i];
       if (!clip.videoUrl) {
         throw new Error(`Clip at index ${i} is missing videoUrl`);
+      }
+
+      if (!isAllowedVideoUrl(clip.videoUrl)) {
+        throw new Error(`Clip ${i}: URL not from an allowed domain`);
       }
 
       const clipFilename = `clip_${i}.mp4`;
@@ -830,21 +590,7 @@ app.post("/api/merge", async (req, res) => {
     if (fullText.trim()) {
       try {
         const ttsLang = lang || "zh";
-        const chunks: string[] = [];
-        const sentenceBoundary = /([.,!?;，。！？；\n]+)/g;
-        const parts = fullText.split(sentenceBoundary);
-        
-        let currentChunk = "";
-        for (const part of parts) {
-          if (!part) continue;
-          if (currentChunk.length + part.length < 150) {
-            currentChunk += part;
-          } else {
-            if (currentChunk.trim()) chunks.push(currentChunk.trim());
-            currentChunk = part;
-          }
-        }
-        if (currentChunk.trim()) chunks.push(currentChunk.trim());
+        const chunks = splitTextIntoChunks(fullText);
 
         const buffers: Buffer[] = [];
         for (const chunk of chunks) {
@@ -1007,6 +753,317 @@ async function pollAgnesVideoStatus(
   }
 }
 
+// ==========================================
+// 4.6 AD PRODUCT API
+// ==========================================
+
+// Generate logo design prompts
+app.post("/api/logo/generate", async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).json({ error: "Missing Authorization header" });
+  }
+
+  const { product, variantCount = 3 } = req.body;
+  if (!product || !product.name) {
+    return res.status(400).json({ error: "Missing product info" });
+  }
+
+  const isDemo = authHeader.includes("••••") || authHeader.toLowerCase().includes("demo") || authHeader.toLowerCase().includes("mock");
+  if (isDemo) {
+    return res.status(400).json({ error: "Demo key detected. Please enter a real Agnes API key." });
+  }
+
+  const count = Math.min(Math.max(Number(variantCount) || 3, 1), 9);
+
+  const systemPrompt = `You are a professional brand identity designer. Generate ${count} different logo design prompts for a product.
+
+Product: ${product.name}
+Description: ${product.description}
+Category: ${product.category}
+Brand Style: ${product.style}
+Target Platform: ${product.targetPlatform}
+
+Generate ${count} prompts, each with a DIFFERENT style approach:
+1. Minimalist clean style - simple, modern, professional
+2. Vibrant energetic style - bold colors, dynamic, eye-catching
+3. Premium luxury style - elegant, sophisticated, high-end${count > 3 ? '\n4. Playful fun style - colorful, creative, approachable' : ''}${count > 4 ? '\n5. Corporate professional style - trustworthy, established, reliable' : ''}${count > 5 ? '\n6. Natural organic style - earthy, sustainable, authentic' : ''}${count > 6 ? '\n7. Futuristic tech style - innovative, cutting-edge, bold' : ''}${count > 7 ? '\n8. Vintage retro style - nostalgic, classic, timeless' : ''}${count > 8 ? '\n9. Artistic creative style - unique, expressive, memorable' : ''}
+
+Each prompt should be a detailed English image generation prompt for creating a logo. Include:
+- Logo design description (icon/symbol + text layout)
+- Color palette recommendation
+- Style keywords
+- Background suggestion
+- Quality boosters (4K, sharp, vector-style)
+
+Output format (JSON):
+{
+  "prompt": "Brief overview prompt",
+  "variants": ["prompt1", "prompt2", ...]
+}`;
+
+  try {
+    const response = await fetch("https://apihub.agnes-ai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": authHeader,
+      },
+      body: JSON.stringify({
+        model: "agnes-2.0-flash",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `Generate 3 logo design prompts for: ${product.name} - ${product.description}` },
+        ],
+        temperature: 0.7,
+        max_tokens: 2000,
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      return res.status(response.status).json({ error: `Agnes API error: ${errText}` });
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || "";
+
+    let jsonStr = content;
+    const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (jsonMatch) {
+      jsonStr = jsonMatch[1];
+    }
+
+    try {
+      const parsed = JSON.parse(jsonStr);
+      return res.json(parsed);
+    } catch (e) {
+      return res.status(500).json({ error: "Failed to parse AI response as JSON", raw: content });
+    }
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message || "Failed to generate logo prompts" });
+  }
+});
+
+// Generate product marketing image prompts
+app.post("/api/product-image/generate", async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).json({ error: "Missing Authorization header" });
+  }
+
+  const { product, imageUrl, textDesc } = req.body;
+  if (!product || !product.name) {
+    return res.status(400).json({ error: "Missing product info" });
+  }
+
+  const isDemo = authHeader.includes("••••") || authHeader.toLowerCase().includes("demo") || authHeader.toLowerCase().includes("mock");
+  if (isDemo) {
+    return res.status(400).json({ error: "Demo key detected. Please enter a real Agnes API key." });
+  }
+
+  const inputDesc = imageUrl ? `Product image URL: ${imageUrl}` : `Product description: ${textDesc || product.description}`;
+
+  const systemPrompt = `You are a professional marketing visual designer. Generate 3 different marketing image prompts for a product.
+
+Product: ${product.name}
+Description: ${product.description}
+Category: ${product.category}
+Brand Style: ${product.style}
+Target Platform: ${product.targetPlatform}
+Input: ${inputDesc}
+
+Generate 3 prompts, each for a DIFFERENT marketing scene:
+1. E-commerce main image - clean white/simple background, product centered, professional product photography style
+2. Social media material - lifestyle context, trendy aesthetic, platform-optimized (Douyin/Xiaohongshu style)
+3. Brand poster - cinematic composition, dramatic lighting, premium feel
+
+Each prompt should be a detailed English image generation prompt. Include:
+- Product positioning and composition
+- Background and environment
+- Lighting setup
+- Color palette
+- Style keywords matching the brand style
+- Quality boosters (4K, sharp focus, commercial photography)
+
+IMPORTANT: The product must maintain its exact original appearance. No distortion, no deformation.
+The product's shape, structure, and appearance remain exactly as shown in reference.
+
+Output format (JSON):
+{
+  "prompt": "Brief overview prompt",
+  "variants": ["prompt1 for ecommerce", "prompt2 for social media", "prompt3 for brand poster"]
+}`;
+
+  try {
+    const response = await fetch("https://apihub.agnes-ai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": authHeader,
+      },
+      body: JSON.stringify({
+        model: "agnes-2.0-flash",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `Generate 3 marketing image prompts for: ${product.name}` },
+        ],
+        temperature: 0.7,
+        max_tokens: 2000,
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      return res.status(response.status).json({ error: `Agnes API error: ${errText}` });
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || "";
+
+    let jsonStr = content;
+    const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (jsonMatch) {
+      jsonStr = jsonMatch[1];
+    }
+
+    try {
+      const parsed = JSON.parse(jsonStr);
+      return res.json(parsed);
+    } catch (e) {
+      return res.status(500).json({ error: "Failed to parse AI response as JSON", raw: content });
+    }
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message || "Failed to generate product image prompts" });
+  }
+});
+
+// Generate ad video prompt
+app.post("/api/ad-video/generate-prompt", async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).json({ error: "Missing Authorization header" });
+  }
+
+  const { product, imageUrl, adCopy, characterName, dialogue } = req.body;
+  if (!product || !product.name || !imageUrl) {
+    return res.status(400).json({ error: "Missing product info or image URL" });
+  }
+
+  const isDemo = authHeader.includes("••••") || authHeader.toLowerCase().includes("demo") || authHeader.toLowerCase().includes("mock");
+  if (isDemo) {
+    return res.status(400).json({ error: "Demo key detected. Please enter a real Agnes API key." });
+  }
+
+  const characterSection = characterName ? `
+Character: ${characterName}
+${product.description ? `Character description: ${product.description}` : ''}
+Dialogue: ${dialogue || 'No dialogue'}` : 'No character - product-only video';
+
+  const systemPrompt = `You are a professional video advertising creative director specializing in product commercial videos. Generate a 15-second product ad video prompt.
+
+Product: ${product.name}
+Description: ${product.description}
+Category: ${product.category}
+Brand Style: ${product.style}
+Ad Copy: ${adCopy}
+${characterSection}
+
+═══ CRITICAL VIDEO PROMPT RULES (from professional product video guide) ═══
+
+HIGHEST PRIORITY - Product Integrity:
+- Product MUST maintain 100% original appearance in ALL frames
+- ABSOLUTELY FORBIDDEN: Any distortion, deformation, stretching, compression
+- ABSOLUTELY FORBIDDEN: Product changing shape, structure, or packaging
+- ABSOLUTELY FORBIDDEN: Impossible dynamics (e.g. solid product spraying liquid)
+- ABSOLUTELY FORBIDDEN: Product behaving inconsistently with its physical properties
+- MUST PRESERVE: Original appearance, color, material, shape exactly as in reference image
+- Design principle: Enhance display through camera work, lighting, and scene — NOT by altering the product
+
+Camera Movement (recommended, in priority order):
+1. Push In (slow): Reveal product details from wide to close
+2. Rotation: Show 360-degree view of the product
+3. Pan (smooth): Lateral or vertical movement across scene
+4. Orbit: Circle around product center for 3D feel
+5. Static: Product completely still, most conservative option
+
+Product Animation Rules:
+- Product stays STATIC or has only minimal natural movement
+- If clothing: allow gentle fabric sway in wind
+- All other products: NO movement, only camera moves
+- Character (if any): natural gestures, facial expressions, subtle movements
+
+Scene & Lighting:
+- Match scene to actual product usage environment
+- Lighting enhances texture and material quality
+- Background supports but never overpowers the product
+- Color palette consistent with brand style
+
+Style Keywords by Category:
+- Digital/Tech: modern, sleek, minimalist, professional, futuristic
+- Fashion: elegant, stylish, lifestyle, authentic, comfortable
+- Food: appetizing, fresh, warm, natural, inviting
+- Home: cozy, clean, organized, harmonious, peaceful
+- Beauty: luminous, radiant, delicate, premium, sophisticated
+
+Output a SINGLE detailed prompt in English that includes:
+1. Product description (matching reference image exactly)
+2. Camera movement (one primary movement, smooth and slow)
+3. Scene environment and lighting
+4. Character animation (if applicable, otherwise omit)
+5. Mood/atmosphere matching brand style
+6. Quality: cinematic, 4K, smooth motion, sharp focus
+
+Output format (JSON):
+{
+  "videoPrompt": "Detailed 15-second video prompt in English following all rules above",
+  "duration": 15
+}`;
+
+  try {
+    const response = await fetch("https://apihub.agnes-ai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": authHeader,
+      },
+      body: JSON.stringify({
+        model: "agnes-2.0-flash",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `Generate a 15-second video prompt for: ${product.name} - ${adCopy}` },
+        ],
+        temperature: 0.7,
+        max_tokens: 1500,
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      return res.status(response.status).json({ error: `Agnes API error: ${errText}` });
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || "";
+
+    let jsonStr = content;
+    const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (jsonMatch) {
+      jsonStr = jsonMatch[1];
+    }
+
+    try {
+      const parsed = JSON.parse(jsonStr);
+      return res.json(parsed);
+    } catch (e) {
+      return res.status(500).json({ error: "Failed to parse AI response as JSON", raw: content });
+    }
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message || "Failed to generate ad video prompt" });
+  }
+});
+
+// ==========================================
 // ==========================================
 // 5. VITE MIDDLEWARE & STATIC SERVING
 // ==========================================

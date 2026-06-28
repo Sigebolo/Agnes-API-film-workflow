@@ -203,13 +203,17 @@ export async function generateCharacterViewApi(
 export async function createVideoTaskApi(
   apiKey: string,
   prompt: string,
-  imageUrl?: string
+  imageUrl?: string,
+  durationSeconds = 5
 ): Promise<{ video_id?: string; task_id?: string }> {
   await rateLimiter.acquire();
+  // num_frames must satisfy 8n+1 (model constraint). At 24fps: frames = duration×24, rounded to nearest 8n+1.
+  const rawFrames = Math.round(durationSeconds * 24);
+  const num_frames = Math.round((rawFrames - 1) / 8) * 8 + 1;
   const body: Record<string, any> = {
     model: "agnes-video-v2.0",
     prompt,
-    num_frames: 121, // 8n + 1 frame rate compatibility
+    num_frames,
     frame_rate: 24,
   };
 
@@ -376,4 +380,98 @@ export function subscribeVideoProgress(
   };
 
   return ws;
+}
+
+// ==========================================
+// Ad Product API
+// ==========================================
+
+import { Product } from "../types";
+
+export interface LogoGenerateResponse {
+  prompt: string;
+  variants: string[];
+}
+
+export async function generateLogoApi(
+  apiKey: string,
+  product: Product,
+  variantCount: number = 3
+): Promise<LogoGenerateResponse> {
+  await rateLimiter.acquire();
+  const response = await fetch("/api/logo/generate", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({ product, variantCount }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.error || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export interface ProductImageGenerateResponse {
+  prompt: string;
+  variants: string[];
+}
+
+export async function generateProductImageApi(
+  apiKey: string,
+  product: Product,
+  imageUrl?: string,
+  textDesc?: string
+): Promise<ProductImageGenerateResponse> {
+  await rateLimiter.acquire();
+  const response = await fetch("/api/product-image/generate", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({ product, imageUrl, textDesc }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.error || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export interface AdVideoPromptResponse {
+  videoPrompt: string;
+  duration: number;
+}
+
+export async function generateAdVideoApi(
+  apiKey: string,
+  product: Product,
+  imageUrl: string,
+  adCopy: string,
+  characterName?: string,
+  dialogue?: string
+): Promise<AdVideoPromptResponse> {
+  await rateLimiter.acquire();
+  const response = await fetch("/api/ad-video/generate-prompt", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({ product, imageUrl, adCopy, characterName, dialogue }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.error || `HTTP ${response.status}`);
+  }
+
+  return response.json();
 }

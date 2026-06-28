@@ -34,3 +34,10 @@ npm-debug.log*
 # Misc
 .cache/
 .parcel-cache/
+
+# Generated uploads (videos, audio, merged files)
+uploads/
+!uploads/.gitkeep
+
+# Lavish review artifacts
+.lavish/

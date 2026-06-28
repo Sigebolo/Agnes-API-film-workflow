@@ -43,6 +43,73 @@ export type TaskStatus = 'idle' | 'generating' | 'polling' | 'completed' | 'fail
 
 export type AppStep = 'prompt' | 'image' | 'video' | 'timeline';
 
+// ==========================================
+// Ad Product Types
+// ==========================================
+
+export type ProductCategory = 'digital' | 'fashion' | 'food' | 'home' | 'beauty' | 'sports';
+export type BrandStyle = 'minimalist' | 'luxury' | 'trendy' | 'warm' | 'tech';
+export type TargetPlatform = 'taobao' | 'douyin' | 'xiaohongshu' | 'instagram' | 'general';
+
+export interface Product {
+  name: string;
+  description: string;
+  category: ProductCategory;
+  style: BrandStyle;
+  targetPlatform: TargetPlatform;
+}
+
+export interface LogoVariant {
+  id: string;
+  prompt: string;
+  imageUrl?: string;
+  status: TaskStatus;
+}
+
+export interface LogoResult {
+  id: string;
+  product: Product;
+  variants: LogoVariant[];
+  createdAt: number;
+}
+
+export type MarketingScene = 'ecommerce' | 'social' | 'poster' | 'lifestyle';
+
+export interface MarketingVariant {
+  id: string;
+  prompt: string;
+  imageUrl?: string;
+  status: TaskStatus;
+  scene: MarketingScene;
+}
+
+export interface ProductImageResult {
+  id: string;
+  product: Product;
+  sourceImageUrl?: string;
+  sourceTextDesc?: string;
+  variants: MarketingVariant[];
+  createdAt: number;
+}
+
+export interface AdVideoResult {
+  id: string;
+  product: Product;
+  sourceImageUrl: string;
+  adCopy: string;
+  videoPrompt: string;
+  characterName?: string;
+  characterDescription?: string;
+  dialogue?: string;
+  videoUrl?: string;
+  videoTaskId?: string;
+  status: TaskStatus;
+  duration: number;
+  createdAt: number;
+}
+
+export type AdWorkflowStep = 'product' | 'logo' | 'product-image' | 'ad-video';
+
 export interface WorkflowState {
   apiKey: string;
   clips: VideoClip[];

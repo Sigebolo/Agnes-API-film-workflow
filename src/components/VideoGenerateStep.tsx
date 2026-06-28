@@ -36,6 +36,8 @@ export default function VideoGenerateStep({
   const [error, setError] = useState<string | null>(null);
   const [subtitleText, setSubtitleText] = useState(activeClip.subtitle || "");
   const [isPolling, setIsPolling] = useState(false);
+  const [videoProgress, setVideoProgress] = useState(0);
+  const [videoDuration, setVideoDuration] = useState<5 | 10 | 15>(activeClip.duration as 5 | 10 | 15 || 5);
   const activeJobId = activeClip.videoTaskId || null;
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -88,6 +90,9 @@ export default function VideoGenerateStep({
       taskId,
       (msg) => {
         setPollStatus(msg.message || "");
+        if (msg.progress !== undefined) {
+          setVideoProgress(msg.progress);
+        }
         setVideoLogs(prev => {
           const newLog = msg.message || "";
           if (!newLog || prev[prev.length - 1] === newLog) return prev;
@@ -102,6 +107,7 @@ export default function VideoGenerateStep({
           videoTaskStatus: "completed",
         });
         setPollStatus("Success");
+        setVideoProgress(100);
         setVideoLogs(prev => [...prev, "✅ Video rendering completed successfully!", "🎉 Cinematic motion clip synchronized."]);
         setIsGenerating(false);
         setIsVideoLoading(false);
@@ -111,6 +117,7 @@ export default function VideoGenerateStep({
         setError(errMsg);
         setVideoLogs(prev => [...prev, `❌ Error: ${errMsg}`, "⚠️ Render pipeline aborted."]);
         setPollStatus("");
+        setVideoProgress(0);
         setIsGenerating(false);
         setIsVideoLoading(false);
         onUpdateClip({ videoTaskStatus: "failed" });
@@ -125,6 +132,7 @@ export default function VideoGenerateStep({
     setIsGenerating(true);
     setIsVideoLoading(true);
     setError(null);
+    setVideoProgress(0);
     setPollStatus("Submitting task to Agnes AI...");
     setVideoLogs([
       "🔄 Initializing video generation pipeline...",
@@ -161,11 +169,12 @@ export default function VideoGenerateStep({
       const { video_id, task_id } = await createVideoTaskApi(
         apiKey,
         activeClip.videoPrompt,
-        imageUrlToSend
+        imageUrlToSend,
+        videoDuration
       );
 
       const resolvedJobId = video_id || task_id || "VID-" + Math.random().toString(36).substr(2, 9).toUpperCase();
-      onUpdateClip({ videoTaskId: resolvedJobId, videoTaskStatus: "polling" });
+      onUpdateClip({ videoTaskId: resolvedJobId, videoTaskStatus: "polling", duration: videoDuration });
       setVideoLogs(prev => [
         ...prev,
         `✓ Reference keyframe validated successfully.`,
@@ -272,20 +281,37 @@ export default function VideoGenerateStep({
             />
           </div>
 
-          <div className="space-y-2">
-            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              Speech script / Subtitles
-            </label>
-            <input
-              type="text"
-              className="w-full px-3 py-2 bg-[#1f1f22] border border-white/10 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-orange-500/50"
-              placeholder="e.g., We have successfully established base contact on the red planet."
-              value={subtitleText}
-              onChange={(e) => setSubtitleText(e.target.value)}
-            />
-            <p className="text-[10px] text-slate-500">
-              This text will be synthesized as audio voiceover and displayed as synced subtitles in the timeline step.
-            </p>
+          <div className="flex gap-3">
+            <div className="flex-1 space-y-2">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                Speech script / Subtitles
+              </label>
+              <input
+                type="text"
+                className="w-full px-3 py-2 bg-[#1f1f22] border border-white/10 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-orange-500/50"
+                placeholder="e.g., We have successfully established base contact on the red planet."
+                value={subtitleText}
+                onChange={(e) => setSubtitleText(e.target.value)}
+              />
+              <p className="text-[10px] text-slate-500">
+                This text will be synthesized as audio voiceover and displayed as synced subtitles in the timeline step.
+              </p>
+            </div>
+            <div className="space-y-2 min-w-[90px]">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                Duration
+              </label>
+              <select
+                value={videoDuration}
+                onChange={(e) => setVideoDuration(Number(e.target.value) as 5 | 10 | 15)}
+                disabled={isGenerating}
+                className="w-full px-3 py-2 bg-[#1f1f22] border border-white/10 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-orange-500/50 disabled:opacity-50"
+              >
+                <option value={5}>5s</option>
+                <option value={10}>10s</option>
+                <option value={15}>15s</option>
+              </select>
+            </div>
           </div>
 
           <button
@@ -325,6 +351,20 @@ export default function VideoGenerateStep({
                 <div className="inline-block bg-[#1a1a1c] border border-white/5 px-3 py-1.5 rounded-lg text-xs font-medium text-orange-400 font-mono shadow-inner animate-pulse">
                   ⚡ {pollStatus || "Awaiting task ID..."}
                 </div>
+                {videoProgress > 0 && (
+                  <div className="w-full max-w-xs mx-auto">
+                    <div className="flex justify-between text-[10px] text-slate-400 mb-1">
+                      <span>Progress</span>
+                      <span className="text-orange-400 font-bold">{videoProgress}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-[#1f1f22] rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-orange-500 to-red-500 transition-all duration-500 ease-out"
+                        style={{ width: `${videoProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
                 
                 <p className="text-xs text-slate-400 leading-relaxed max-w-sm mx-auto">
                   Agnes's video engine is generating 121 high-definition frames at 24fps with cinematic temporal flow.

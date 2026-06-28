@@ -1,6 +1,6 @@
 {
-  "name": "Agnes AI Video Generator",
-  "description": "An interactive workflow tool that optimizes prompts, generates images, creates videos, and merges them into a cohesive story with audio voiceover and subtitles using Agnes AI.",
+  "name": "Agnes Film Studio",
+  "description": "AI-powered storyboard-to-video pipeline. Input a story outline, AI generates script and shots, then batch-generates images and 5-second videos, and merges them into a final cinematic video with voiceover.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": []
 }

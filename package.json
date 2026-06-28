@@ -1,7 +1,18 @@
 {
-  "name": "react-example",
+  "name": "agnes-film-studio",
+  "description": "AI-powered storyboard-to-video pipeline. Input a story outline, get a cinematic video.",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "homepage": "https://github.com/yourname/agnes-film-studio",
+  "keywords": [
+    "ai",
+    "video",
+    "storyboard",
+    "agnes-ai",
+    "ffmpeg",
+    "react",
+    "typescript"
+  ],
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -13,7 +24,6 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.1.14",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.0.4",

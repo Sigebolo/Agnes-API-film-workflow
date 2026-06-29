@@ -1108,7 +1108,7 @@ Character: ${characterName}
 ${product.description ? `Character description: ${product.description}` : ''}
 Dialogue: ${dialogue || 'No dialogue'}` : 'No character - product-only video';
 
-  const systemPrompt = `You are a professional video advertising creative director specializing in product commercial videos. Generate a 15-second product ad video prompt.
+  const systemPrompt = `You are a professional video advertising creative director specializing in product commercial videos. Generate a product ad video prompt.
 
 Product: ${product.name}
 Description: ${product.description}
@@ -1127,6 +1127,40 @@ HIGHEST PRIORITY - Product Integrity:
 - ABSOLUTELY FORBIDDEN: Product behaving inconsistently with its physical properties
 - MUST PRESERVE: Original appearance, color, material, shape exactly as in reference image
 - Design principle: Enhance display through camera work, lighting, and scene — NOT by altering the product
+
+═══ AD SCRIPT STRUCTURE (from professional script template) ═══
+
+The video prompt must follow this 4-part structure:
+
+1. OPENING (first 20% of duration):
+   - Grab attention, establish brand/product concept
+   - Create initial atmosphere
+   - Product may not appear yet, focus on mood
+
+2. SHOWCASE (next 35% of duration):
+   - Multi-angle product display
+   - Highlight core appearance features
+   - Show usage场景
+
+3. SELLING POINTS (next 30% of duration):
+   - Deep dive into 1-3 core advantages
+   - Connect features to user benefits
+   - Solve user pain points
+
+4. ENDING (last 15% of duration):
+   - Reinforce brand memory
+   - Clear call-to-action (CTA)
+   - Brand logo / purchase guidance
+
+Duration Allocation:
+- 15s video: Opening 3s → Showcase 5s → Selling 5s → Ending 2s
+- 30s video: Opening 6s → Showcase 10s → Selling 10s → Ending 4s
+
+Writing Guidelines:
+- Keep sentences short (under 15 words each)
+- Use conversational tone, avoid jargon
+- Create emotional connection with viewer
+- Every second must carry visual information — no dead frames
 
 Camera Movement (recommended, in priority order):
 1. Push In (slow): Reveal product details from wide to close
@@ -1154,17 +1188,11 @@ Style Keywords by Category:
 - Home: cozy, clean, organized, harmonious, peaceful
 - Beauty: luminous, radiant, delicate, premium, sophisticated
 
-Output a SINGLE detailed prompt in English that includes:
-1. Product description (matching reference image exactly)
-2. Camera movement (one primary movement, smooth and slow)
-3. Scene environment and lighting
-4. Character animation (if applicable, otherwise omit)
-5. Mood/atmosphere matching brand style
-6. Quality: cinematic, 4K, smooth motion, sharp focus
+Output a DETAILED prompt in English that follows the 4-part structure above. The prompt should describe the visual sequence with timing cues (e.g. "Opening 3s: ...", "Showcase 5s: ...").
 
 Output format (JSON):
 {
-  "videoPrompt": "Detailed 15-second video prompt in English following all rules above",
+  "videoPrompt": "Detailed video prompt in English with 4-part structure and timing cues",
   "duration": 15
 }`;
 

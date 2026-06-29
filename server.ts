@@ -19,9 +19,66 @@ if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
 // Serve uploaded/generated files statically
 app.use("/uploads", express.static(UPLOADS_DIR));
+
+// ==========================================
+// Session output folder
+// ==========================================
+const OUTPUTS_DIR = path.join(process.cwd(), "outputs");
+if (!fs.existsSync(OUTPUTS_DIR)) {
+  fs.mkdirSync(OUTPUTS_DIR, { recursive: true });
+}
+let currentSessionDir: string | null = null;
+
+// Create a new session output folder
+app.post("/api/output/create", (req, res) => {
+  const { name } = req.body;
+  const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const safeName = (name || "session").replace(/[^a-zA-Z0-9\u4e00-\u9fff_-]/g, "_");
+  currentSessionDir = path.join(OUTPUTS_DIR, `${safeName}_${ts}`);
+  fs.mkdirSync(currentSessionDir, { recursive: true });
+  res.json({ path: currentSessionDir, url: `/outputs/${safeName}_${ts}` });
+});
+
+// Get current session folder
+app.get("/api/output/current", (_req, res) => {
+  res.json({ path: currentSessionDir });
+});
+
+// Save reference image to output folder
+app.post("/api/output/save-image", async (req, res) => {
+  const { imageUrl, name } = req.body;
+  if (!imageUrl) return res.status(400).json({ error: "Missing imageUrl" });
+  if (!currentSessionDir) {
+    // Create a folder if none exists
+    const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    currentSessionDir = path.join(OUTPUTS_DIR, `session_${ts}`);
+    fs.mkdirSync(currentSessionDir, { recursive: true });
+  }
+  try {
+    const ext = imageUrl.includes(".png") ? ".png" : ".jpg";
+    const filename = (name || "reference") + ext;
+    const filepath = path.join(currentSessionDir, filename);
+    await downloadFile(imageUrl, filepath);
+    res.json({ path: filepath, filename });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Serve output files
+const OUTPUTS_STATIC = path.join(process.cwd(), "outputs");
+app.use("/outputs", express.static(OUTPUTS_STATIC));
+
+// Helper: save a file to current session output folder
+async function saveToSession(filename: string, data: Buffer | string): Promise<string | null> {
+  if (!currentSessionDir) return null;
+  const filepath = path.join(currentSessionDir, filename);
+  fs.writeFileSync(filepath, data);
+  return filepath;
+}
 
 // Helper: Download a file from URL to local path
 async function downloadFile(url: string, destPath: string): Promise<void> {
@@ -307,10 +364,10 @@ app.post("/api/proxy/videos", async (req, res) => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 min timeout
 
-      console.log(`[Video API] → POST https://apihub.agnes-ai.com/v1/video/generations (attempt ${attempt}/${MAX_RETRIES})`);
+      console.log(`[Video API] → POST https://apihub.agnes-ai.com/v1/videos (attempt ${attempt}/${MAX_RETRIES})`);
       console.log(`[Video API] Body: ${JSON.stringify(req.body).slice(0, 500)}`);
 
-      const response = await fetch("https://apihub.agnes-ai.com/v1/video/generations", {
+      const response = await fetch("https://apihub.agnes-ai.com/v1/videos", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -337,33 +394,21 @@ app.post("/api/proxy/videos", async (req, res) => {
         }
       }
 
-      // 503 Service Busy → retry
-      if (response.status === 503 && attempt < MAX_RETRIES) {
-        console.log(`[Video API] ⚠️ Service busy (attempt ${attempt}/${MAX_RETRIES}), retrying in ${RETRY_DELAY_MS / 1000}s...`);
-        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
-        continue;
-      }
-
-      // Other errors or final attempt failed
+      // Return all errors directly to client — client handles retry with visible UI feedback
       let errorMsg = `Agnes API error: ${response.status}`;
       try {
         const errData = JSON.parse(responseText);
         errorMsg = errData.message || errData.error?.message || errorMsg;
       } catch {}
-      return res.status(response.status).json({ error: errorMsg, attempts: attempt });
+      return res.status(response.status).json({ error: errorMsg, retryable: response.status === 503 });
 
     } catch (error: any) {
       console.error("Proxy Videos error:", error);
-      if (attempt < MAX_RETRIES) {
-        console.log(`[Video API] ⚠️ Network error (attempt ${attempt}/${MAX_RETRIES}), retrying in ${RETRY_DELAY_MS / 1000}s...`);
-        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
-        continue;
-      }
-      return res.status(500).json({ error: error.message || "Failed to connect to Agnes API", attempts: attempt });
+      return res.status(500).json({ error: error.message || "Failed to connect to Agnes API", retryable: true });
     }
   }
 
-  return res.status(503).json({ error: "Agnes API is busy. All retry attempts exhausted. Please try again later." });
+  return res.status(503).json({ error: "Agnes API is busy. Please try again later.", retryable: true });
 });
 
 // Proxy to Agnes API Tasks/Status
@@ -374,7 +419,6 @@ app.get("/api/proxy/status", async (req, res) => {
   }
 
   const { video_id, task_id } = req.query;
-  const targetId = (video_id || task_id) as string || "unknown";
 
   const isDemo = authHeader.includes("••••") || authHeader.toLowerCase().includes("demo") || authHeader.toLowerCase().includes("mock");
 
@@ -382,14 +426,12 @@ app.get("/api/proxy/status", async (req, res) => {
     return res.status(400).json({ error: "Demo key detected. Please enter a real Agnes API key." });
   }
 
-  let targetUrl = "";
-  if (video_id) {
-    targetUrl = `https://apihub.agnes-ai.com/agnesapi?video_id=${video_id}`;
-  } else if (task_id) {
-    targetUrl = `https://apihub.agnes-ai.com/v1/videos/tasks/${task_id}`;
-  } else {
+  const rawId = (video_id || task_id) as string;
+  if (!rawId) {
     return res.status(400).json({ error: "Required query parameter video_id or task_id is missing" });
   }
+  const targetId = resolveVideoId(rawId);
+  const targetUrl = `https://apihub.agnes-ai.com/agnesapi?video_id=${targetId}`;
 
   try {
     const controller = new AbortController();
@@ -688,6 +730,20 @@ app.post("/api/merge", async (req, res) => {
 
 const videoProgressClients = new Map<string, Set<WebSocket>>();
 
+// Agnes returns video_id as "video_<base64>" where base64 decodes to
+// "litellm:...;video_id:video_xxx". Extract the inner ID for polling.
+function resolveVideoId(videoId: string): string {
+  if (videoId.startsWith("video_")) {
+    try {
+      const b64 = videoId.slice("video_".length);
+      const decoded = Buffer.from(b64, "base64").toString("utf8");
+      const match = decoded.match(/video_id:(video_[^;]+)/);
+      if (match) return match[1];
+    } catch {}
+  }
+  return videoId;
+}
+
 async function pollAgnesVideoStatus(
   videoId: string,
   apiKey: string,
@@ -696,6 +752,7 @@ async function pollAgnesVideoStatus(
 ): Promise<void> {
   const delays = [5000, 10000, 15000, 20000, 30000, 45000, 60000];
   const maxAttempts = 35;
+  let lastLogTime = 0;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     if (ws.readyState !== WebSocket.OPEN) return;
@@ -708,7 +765,10 @@ async function pollAgnesVideoStatus(
     if (ws.readyState !== WebSocket.OPEN) return;
 
     try {
-      const targetUrl = `https://apihub.agnes-ai.com/agnesapi?video_id=${videoId}`;
+      const resolvedId = resolveVideoId(videoId);
+      // CRITICAL: Use /agnesapi?video_id= for polling (NOT /v1/video/generations/{task_id})
+      // Using task_id causes 20+ min queue, using video_id takes ~80 seconds
+      const targetUrl = `https://apihub.agnes-ai.com/agnesapi?video_id=${resolvedId}`;
       const response = await fetch(targetUrl, {
         headers: { Authorization: `Bearer ${apiKey}` },
         signal: AbortSignal.timeout(8000),
@@ -716,21 +776,42 @@ async function pollAgnesVideoStatus(
 
       if (!response.ok) continue;
 
-      const data = await response.json();
-      const status = data.status?.toLowerCase();
-      const progress = data.progress || 0;
+      const rawData = await response.json();
+      // Agnes /agnesapi response: { status, progress, video_url, remixed_from_video_id, error }
+      const status = rawData.status?.toLowerCase() || "unknown";
+      const progress = rawData.progress ?? 0;
+      const videoUrl = rawData.remixed_from_video_id || rawData.video_url || rawData.url
+                    || rawData.urls?.[0];
 
-      ws.send(JSON.stringify({
-        type: "progress",
-        taskId,
-        step: "video",
-        status: status || "pending",
-        message: `Video status: ${status || "pending"}...`,
-        progress,
-      }));
+      // Clear progress messages in English
+      const now = Date.now();
+      const statusMessages: Record<string, string> = {
+        "not_start": "⏳ Queued, waiting to generate...",
+        "queued": "⏳ In queue, waiting...",
+        "processing": "⚙️ Generating video...",
+        "running": "⚙️ Generating video...",
+        "completed": "✅ Generation complete!",
+        "success": "✅ Generation complete!",
+        "failed": "❌ Generation failed",
+      };
+
+      const progressMsg = statusMessages[status] || `📡 Status: ${status}`;
+      const timeMsg = attempt > 0 ? ` (${Math.round(attempt * 15 / 60)}min)` : "";
+
+      // Only log every 15 seconds to avoid spam
+      if (now - lastLogTime > 15000 || attempt === 0) {
+        ws.send(JSON.stringify({
+          type: "progress",
+          taskId,
+          step: "video",
+          status: status || "pending",
+          message: `${progressMsg}${timeMsg}`,
+          progress,
+        }));
+        lastLogTime = now;
+      }
 
       if (status === "completed" || status === "success") {
-        const videoUrl = data.urls?.[0] || data.video_url || data.url || data.remixed_from_video_id;
         if (videoUrl) {
           ws.send(JSON.stringify({ type: "done", taskId, url: videoUrl }));
         } else {
@@ -740,7 +821,7 @@ async function pollAgnesVideoStatus(
       }
 
       if (status === "failed") {
-        ws.send(JSON.stringify({ type: "error", taskId, message: data.error || "Video generation failed" }));
+        ws.send(JSON.stringify({ type: "error", taskId, message: inner.error || rawData.error || "Video generation failed" }));
         return;
       }
     } catch (err: any) {
@@ -1106,6 +1187,143 @@ app.post("/api/video/trim", async (req, res) => {
     console.error("Video trim error:", error);
     return res.status(500).json({ error: error.message || "Failed to trim video" });
   }
+});
+
+// ==========================================
+// 4.8 TASK REGISTRY — persistent task tracking
+// ==========================================
+const TASKS_FILE = path.join(process.cwd(), "data", "tasks.json");
+
+interface TaskRecord {
+  id: string;               // task_id from Agnes API
+  type: "video" | "image";  // task type
+  prompt: string;
+  imageUrl?: string;        // reference image for video
+  videoUrl?: string;        // completed video URL
+  status: string;           // queued, processing, completed, failed
+  createdAt: number;        // timestamp
+  updatedAt: number;
+  error?: string;
+  extra?: Record<string, any>;
+}
+
+function loadTasks(): TaskRecord[] {
+  try {
+    if (fs.existsSync(TASKS_FILE)) {
+      return JSON.parse(fs.readFileSync(TASKS_FILE, "utf-8"));
+    }
+  } catch {}
+  return [];
+}
+
+function saveTasks(tasks: TaskRecord[]) {
+  const dir = path.dirname(TASKS_FILE);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(TASKS_FILE, JSON.stringify(tasks, null, 2), "utf-8");
+}
+
+// Save or update a task
+app.post("/api/tasks", (req, res) => {
+  const { id, type, prompt, imageUrl, videoUrl, status, error, extra } = req.body;
+  if (!id) return res.status(400).json({ error: "Missing task id" });
+
+  const tasks = loadTasks();
+  const now = Date.now();
+  const existing = tasks.find((t) => t.id === id);
+
+  if (existing) {
+    existing.status = status || existing.status;
+    existing.videoUrl = videoUrl || existing.videoUrl;
+    existing.error = error || existing.error;
+    existing.updatedAt = now;
+  } else {
+    tasks.unshift({
+      id,
+      type: type || "video",
+      prompt: prompt || "",
+      imageUrl,
+      videoUrl,
+      status: status || "queued",
+      createdAt: now,
+      updatedAt: now,
+      error,
+      extra,
+    });
+  }
+
+  // Keep last 100 tasks
+  saveTasks(tasks.slice(0, 100));
+  res.json({ ok: true, count: tasks.length });
+});
+
+// List all tasks
+app.get("/api/tasks", (_req, res) => {
+  res.json(loadTasks());
+});
+
+// Query live status from Agnes API and update registry
+app.get("/api/tasks/:id/status", async (req, res) => {
+  const { id } = req.params;
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: "Missing Authorization header" });
+
+  // Skip pending tasks — they haven't been submitted to Agnes yet
+  if (id.startsWith("pending_")) {
+    return res.json({ status: "submitting", videoUrl: null });
+  }
+
+  try {
+    // CRITICAL: Use /agnesapi?video_id= for polling (NOT /v1/video/generations/{task_id})
+    const response = await fetch(`https://apihub.agnes-ai.com/agnesapi?video_id=${id}`, {
+      headers: { Authorization: authHeader },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    const text = await response.text();
+    if (!response.ok) {
+      const isExpired = text.includes("task_not_exist") || text.includes("task not found");
+      if (isExpired) {
+        const tasks = loadTasks();
+        const task = tasks.find((t) => t.id === id);
+        if (task) {
+          task.status = "expired";
+          task.updatedAt = Date.now();
+          saveTasks(tasks);
+        }
+        return res.json({ status: "expired", videoUrl: null });
+      }
+      return res.status(response.status).json({ error: `Agnes API: ${response.status} — ${text}` });
+    }
+
+    const data = JSON.parse(text);
+    // /agnesapi response: { status, progress, video_url, remixed_from_video_id, error }
+    const status = data.status?.toLowerCase() || "unknown";
+    const progress = data.progress ?? 0;
+    const videoUrl = data.remixed_from_video_id || data.video_url || data.url
+                  || data.urls?.[0];
+
+    // Update registry
+    const tasks = loadTasks();
+    const task = tasks.find((t) => t.id === id);
+    if (task) {
+      task.status = status;
+      task.extra = { ...task.extra, progress };
+      if (videoUrl) task.videoUrl = videoUrl;
+      task.updatedAt = Date.now();
+      saveTasks(tasks);
+    }
+
+    res.json({ status, progress, videoUrl, raw: data });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to query status" });
+  }
+});
+
+// Delete a task from registry
+app.delete("/api/tasks/:id", (req, res) => {
+  const tasks = loadTasks().filter((t) => t.id !== req.params.id);
+  saveTasks(tasks);
+  res.json({ ok: true, count: tasks.length });
 });
 
 // ==========================================

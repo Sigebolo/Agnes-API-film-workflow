@@ -39,5 +39,12 @@ npm-debug.log*
 uploads/
 !uploads/.gitkeep
 
+# Task registry data
+data/
+
+# Generated session outputs
+outputs/
+!outputs/.gitkeep
+
 # Lavish review artifacts
 .lavish/

@@ -204,7 +204,7 @@ export async function createVideoTaskApi(
   apiKey: string,
   prompt: string,
   imageUrl?: string,
-  durationSeconds = 5
+  durationSeconds = 15
 ): Promise<{ video_id?: string; task_id?: string }> {
   await rateLimiter.acquire();
   // num_frames must satisfy 8n+1 (model constraint). At 24fps: frames = duration×24, rounded to nearest 8n+1.
@@ -474,4 +474,72 @@ export async function generateAdVideoApi(
   }
 
   return response.json();
+}
+
+// ==========================================
+// Task Registry API
+// ==========================================
+
+export interface TaskRecord {
+  id: string;
+  type: "video" | "image";
+  prompt: string;
+  imageUrl?: string;
+  videoUrl?: string;
+  status: string;
+  createdAt: number;
+  updatedAt: number;
+  error?: string;
+  extra?: Record<string, any>;
+}
+
+export async function saveTask(task: Partial<TaskRecord>): Promise<void> {
+  await fetch("/api/tasks", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(task),
+  });
+}
+
+export async function listTasks(): Promise<TaskRecord[]> {
+  const res = await fetch("/api/tasks");
+  return res.json();
+}
+
+export async function queryTaskStatus(taskId: string, apiKey: string): Promise<{ status: string; videoUrl?: string }> {
+  const res = await fetch(`/api/tasks/${taskId}/status`, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  const data = await res.json();
+  return { status: data.status, videoUrl: data.videoUrl };
+}
+
+export async function deleteTask(taskId: string): Promise<void> {
+  await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
+}
+
+// ==========================================
+// Session Output Folder API
+// ==========================================
+
+export async function createOutputFolder(name: string): Promise<string | null> {
+  const res = await fetch("/api/output/create", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.url || null;
+}
+
+export async function getCurrentOutputFolder(): Promise<string | null> {
+  const res = await fetch("/api/output/current");
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.path;
 }

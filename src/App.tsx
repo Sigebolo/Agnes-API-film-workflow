@@ -18,6 +18,7 @@ import ProductImageStep from "./components/ProductImageStep";
 import AdVideoStep from "./components/AdVideoStep";
 import { ToastContainer, ToastItem, createToast } from "./components/Toast";
 import { loadWorkflow, saveWorkflow } from "./utils/storage";
+import { createOutputFolder } from "./utils/api";
 
 const LOCAL_STORAGE_KEY_API = "agnes_api_key_v2";
 
@@ -76,6 +77,7 @@ export default function App() {
   const [logoResult, setLogoResult] = useState<LogoResult | null>(null);
   const [imageResult, setImageResult] = useState<ProductImageResult | null>(null);
   const [videoResult, setVideoResult] = useState<AdVideoResult | null>(null);
+  const [outputFolder, setOutputFolder] = useState<string | null>(null);
 
   // Save workflow to localStorage (debounced 500ms)
   useEffect(() => {
@@ -141,6 +143,10 @@ export default function App() {
 
   // Ad workflow handlers
   const handleAdNext = (step: AdWorkflowStep) => {
+    // Create output folder when moving from product to logo
+    if (adStep === "product" && step === "logo" && adProduct.name) {
+      createOutputFolder(adProduct.name).then(setOutputFolder);
+    }
     setAdStep(step);
   };
 
@@ -262,6 +268,7 @@ export default function App() {
             state={state}
             isAdMode={isAdMode}
             adStep={isAdMode ? adStep : undefined}
+            outputFolder={outputFolder}
           />
         </div>
 

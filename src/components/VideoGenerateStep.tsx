@@ -6,7 +6,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Film, Sparkles, RefreshCw, Save, ArrowLeft, Plus, CheckCircle, ArrowRight, Hourglass, AlertTriangle, RotateCw, Image as ImageIcon, StopCircle } from "lucide-react";
 import { VideoClip } from "../types";
-import { createVideoTaskApi, subscribeVideoProgress } from "../utils/api";
+import { createVideoTaskApi, subscribeVideoProgress, saveTask, queryTaskStatus } from "../utils/api";
 import { compressImage, getImageSizeInfo } from "../utils/imageCompress";
 import { ToastItem, createToast } from "./Toast";
 
@@ -37,7 +37,7 @@ export default function VideoGenerateStep({
   const [subtitleText, setSubtitleText] = useState(activeClip.subtitle || "");
   const [isPolling, setIsPolling] = useState(false);
   const [videoProgress, setVideoProgress] = useState(0);
-  const [videoDuration, setVideoDuration] = useState<5 | 10 | 15>(activeClip.duration as 5 | 10 | 15 || 5);
+  const [videoDuration, setVideoDuration] = useState<5 | 10 | 15>(activeClip.duration as 5 | 10 | 15 || 15);
   const activeJobId = activeClip.videoTaskId || null;
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -111,6 +111,7 @@ export default function VideoGenerateStep({
         setVideoLogs(prev => [...prev, "✅ Video rendering completed successfully!", "🎉 Cinematic motion clip synchronized."]);
         setIsGenerating(false);
         setIsVideoLoading(false);
+        saveTask({ id: taskId, type: "video", status: "completed", videoUrl: cacheBustedUrl });
         if (onToast) onToast(createToast("success", "Video generated successfully!"));
       },
       (errMsg) => {
@@ -121,6 +122,7 @@ export default function VideoGenerateStep({
         setIsGenerating(false);
         setIsVideoLoading(false);
         onUpdateClip({ videoTaskStatus: "failed" });
+        saveTask({ id: taskId, type: "video", status: "failed", error: errMsg });
         if (onToast) onToast(createToast("error", `Video generation failed: ${errMsg}`));
       }
     );
@@ -166,22 +168,60 @@ export default function VideoGenerateStep({
         "🌐 Uploading reference keyframe to Agnes neural cluster..."
       ]);
 
-      const { video_id, task_id } = await createVideoTaskApi(
-        apiKey,
-        activeClip.videoPrompt,
-        imageUrlToSend,
-        videoDuration
-      );
+      // Retry loop for 503 Service Busy
+      let result: { video_id?: string; task_id?: string } | null = null;
+      const MAX_SUBMIT_RETRIES = 5;
+      const RETRY_DELAY_S = 30;
+      for (let attempt = 1; attempt <= MAX_SUBMIT_RETRIES; attempt++) {
+        try {
+          result = await createVideoTaskApi(
+            apiKey,
+            activeClip.videoPrompt,
+            imageUrlToSend,
+            videoDuration
+          );
+          break;
+        } catch (submitErr: any) {
+          const is503 = submitErr.message?.includes("503") || submitErr.message?.includes("busy");
+          if (is503 && attempt < MAX_SUBMIT_RETRIES) {
+            for (let s = RETRY_DELAY_S; s > 0; s--) {
+              setPollStatus(`Server busy, retrying in ${s}s (attempt ${attempt})...`);
+              setVideoLogs(prev => {
+                const last = prev[prev.length - 1];
+                const msg = `⏳ Server busy, retrying in ${s}s (attempt ${attempt})...`;
+                if (last?.startsWith("⏳")) return [...prev.slice(0, -1), msg];
+                return [...prev, msg];
+              });
+              await new Promise(r => setTimeout(r, 1000));
+            }
+            continue;
+          }
+          throw submitErr;
+        }
+      }
 
+      if (!result) throw new Error("Submission failed: server busy after multiple retries, please try again later.");
+
+      const { video_id, task_id } = result;
+      // CRITICAL: Use video_id for polling (NOT task_id!)
       const resolvedJobId = video_id || task_id || "VID-" + Math.random().toString(36).substr(2, 9).toUpperCase();
       onUpdateClip({ videoTaskId: resolvedJobId, videoTaskStatus: "polling", duration: videoDuration });
       setVideoLogs(prev => [
         ...prev,
-        `✓ Reference keyframe validated successfully.`,
-        `📡 Dispatched Agnes Job ID: ${resolvedJobId}`,
-        "⚙️ Bootstrapping Agnes video interpolation engine..."
+        `✓ Task submitted successfully`,
+        `📡 Video ID: ${resolvedJobId}`,
+        "⚙️ Starting video generation..."
       ]);
-      setPollStatus("Video task created. Connecting via WebSocket...");
+      setPollStatus("Video task created, connecting...");
+
+      // Save task to registry
+      saveTask({
+        id: resolvedJobId,
+        type: "video",
+        prompt: activeClip.videoPrompt,
+        imageUrl: imageUrlToSend,
+        status: "queued",
+      });
 
       connectWebSocket(resolvedJobId);
     } catch (err: any) {

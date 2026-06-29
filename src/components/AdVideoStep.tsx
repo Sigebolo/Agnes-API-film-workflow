@@ -8,6 +8,7 @@ import { Film, ArrowLeft, Sparkles, RefreshCw, Play, CheckCircle, AlertTriangle,
 import { Product, AdVideoResult, TaskStatus } from "../types";
 import { generateAdVideoApi, subscribeVideoProgress, saveTask, deleteTask, autoSaveVideo } from "../utils/api";
 import { compressImage } from "../utils/imageCompress";
+import { compressImage } from "../utils/imageCompress";
 
 interface AdVideoStepProps {
   apiKey: string;
@@ -180,13 +181,15 @@ export default function AdVideoStep({
           videoBody.image = referenceImage;
           setVideoLogs(prev => [...prev, "✅ Using reference image URL directly"]);
         } else {
-          // It's base64, upload to get a public URL
-          setVideoLogs(prev => [...prev, "🌐 Uploading reference image..."]);
+          // It's base64, compress then upload to get a public URL
+          setVideoLogs(prev => [...prev, "🌐 Compressing image..."]);
           try {
+            const compressed = await compressImage(referenceImage, 1024, 0.85);
+            setVideoLogs(prev => [...prev, "📤 Uploading reference image..."]);
             const uploadResp = await fetch("/api/upload-image", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ base64: referenceImage, name: "ref" }),
+              body: JSON.stringify({ base64: compressed, name: "ref" }),
             });
             const uploadData = await uploadResp.json();
             if (uploadData.url) {

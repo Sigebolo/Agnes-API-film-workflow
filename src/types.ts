@@ -110,6 +110,19 @@ export interface AdVideoResult {
 
 export type AdWorkflowStep = 'product' | 'logo' | 'product-image' | 'ad-video';
 
+export interface AdWorkflowState {
+  isAdMode: boolean;
+  adStep: AdWorkflowStep;
+  adProduct: Product;
+  logoResult: LogoResult | null;
+  logoVariants: LogoVariant[];
+  isLogoGenerating: boolean;
+  selectedLogoUrl: string | null;
+  imageResult: ProductImageResult | null;
+  videoResult: AdVideoResult | null;
+  outputFolder: string | null;
+}
+
 export interface WorkflowState {
   apiKey: string;
   clips: VideoClip[];

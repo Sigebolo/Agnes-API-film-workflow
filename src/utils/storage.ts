@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { WorkflowState } from "../types";
+import { WorkflowState, AdWorkflowState } from "../types";
 
 const STORAGE_KEY = "agnes_workflow_v2";
+const AD_STORAGE_KEY = "agnes_ad_workflow_v1";
 const LEGACY_API_KEY = "agnes_api_key_v2";
 
 const DEFAULT_CLIP = {
@@ -69,4 +70,29 @@ export function migrateLegacyState(raw: any): Partial<WorkflowState> {
   }
 
   return state;
+}
+
+// ==========================================
+// Ad Workflow State Persistence
+// ==========================================
+
+export function saveAdWorkflow(state: AdWorkflowState): void {
+  try {
+    const serialized = JSON.stringify(state);
+    localStorage.setItem(AD_STORAGE_KEY, serialized);
+  } catch (err) {
+    console.warn("[Storage] Failed to save ad workflow state:", err);
+  }
+}
+
+export function loadAdWorkflow(): Partial<AdWorkflowState> | null {
+  try {
+    const raw = localStorage.getItem(AD_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed as Partial<AdWorkflowState>;
+  } catch {
+    return null;
+  }
 }

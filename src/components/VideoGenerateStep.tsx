@@ -6,7 +6,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Film, Sparkles, RefreshCw, Save, ArrowLeft, Plus, CheckCircle, ArrowRight, Hourglass, AlertTriangle, RotateCw, Image as ImageIcon, StopCircle } from "lucide-react";
 import { VideoClip } from "../types";
-import { createVideoTaskApi, subscribeVideoProgress, saveTask, queryTaskStatus } from "../utils/api";
+import { createVideoTaskApi, subscribeVideoProgress, saveTask, queryTaskStatus, autoSaveVideo } from "../utils/api";
 import { compressImage, getImageSizeInfo } from "../utils/imageCompress";
 import { ToastItem, createToast } from "./Toast";
 
@@ -37,7 +37,7 @@ export default function VideoGenerateStep({
   const [subtitleText, setSubtitleText] = useState(activeClip.subtitle || "");
   const [isPolling, setIsPolling] = useState(false);
   const [videoProgress, setVideoProgress] = useState(0);
-  const [videoDuration, setVideoDuration] = useState<5 | 10 | 15>(activeClip.duration as 5 | 10 | 15 || 15);
+  const [videoDuration, setVideoDuration] = useState<number>(activeClip.duration || 15);
   const activeJobId = activeClip.videoTaskId || null;
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -112,6 +112,8 @@ export default function VideoGenerateStep({
         setIsGenerating(false);
         setIsVideoLoading(false);
         saveTask({ id: taskId, type: "video", status: "completed", videoUrl: cacheBustedUrl });
+        // Auto-save video to output folder
+        autoSaveVideo(cacheBustedUrl, `video_${Date.now()}`);
         if (onToast) onToast(createToast("success", "Video generated successfully!"));
       },
       (errMsg) => {
@@ -146,20 +148,34 @@ export default function VideoGenerateStep({
       // Compress image before uploading
       let imageUrlToSend = activeClip.imageUrl;
       if (activeClip.imageUrl) {
-        try {
-          const compressed = await compressImage(activeClip.imageUrl, 2048, 0.95);
-          const sizeInfo = getImageSizeInfo(compressed);
-          imageUrlToSend = compressed;
-          setVideoLogs(prev => [
-            ...prev,
-            `📐 Image compressed: ${sizeInfo.sizeKB}KB (${sizeInfo.sizeMB}MB)`
-          ]);
-        } catch (compressErr) {
-          // If compression fails, use original
-          setVideoLogs(prev => [
-            ...prev,
-            "⚠️ Compression failed, using original image"
-          ]);
+        // If it's already a URL, use directly
+        if (activeClip.imageUrl.startsWith("http")) {
+          imageUrlToSend = activeClip.imageUrl;
+          setVideoLogs(prev => [...prev, "✅ Using image URL directly"]);
+        } else {
+          // It's base64, compress then upload to get public URL
+          try {
+            const compressed = await compressImage(activeClip.imageUrl, 2048, 0.95);
+            const sizeInfo = getImageSizeInfo(compressed);
+            setVideoLogs(prev => [...prev, `📐 Image compressed: ${sizeInfo.sizeKB}KB (${sizeInfo.sizeMB}MB)`]);
+            // Upload to get public URL
+            setVideoLogs(prev => [...prev, "🌐 Uploading image to get public URL..."]);
+            const uploadResp = await fetch("/api/upload-image", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ base64: compressed, name: "video_ref" }),
+            });
+            const uploadData = await uploadResp.json();
+            if (uploadData.url) {
+              imageUrlToSend = uploadData.url;
+              setVideoLogs(prev => [...prev, "✅ Image uploaded, using public URL"]);
+            } else {
+              setVideoLogs(prev => [...prev, "⚠️ Upload failed, proceeding without image"]);
+              imageUrlToSend = undefined;
+            }
+          } catch (compressErr) {
+            setVideoLogs(prev => [...prev, "⚠️ Compression failed, using original image"]);
+          }
         }
       }
 
@@ -343,13 +359,16 @@ export default function VideoGenerateStep({
               </label>
               <select
                 value={videoDuration}
-                onChange={(e) => setVideoDuration(Number(e.target.value) as 5 | 10 | 15)}
+                onChange={(e) => setVideoDuration(Number(e.target.value))}
                 disabled={isGenerating}
                 className="w-full px-3 py-2 bg-[#1f1f22] border border-white/10 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-orange-500/50 disabled:opacity-50"
               >
                 <option value={5}>5s</option>
                 <option value={10}>10s</option>
                 <option value={15}>15s</option>
+                <option value={20}>20s</option>
+                <option value={25}>25s</option>
+                <option value={30}>30s</option>
               </select>
             </div>
           </div>

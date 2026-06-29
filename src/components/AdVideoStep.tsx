@@ -6,7 +6,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Film, ArrowLeft, Sparkles, RefreshCw, Play, CheckCircle, AlertTriangle, User, StopCircle, Scissors, Upload, X } from "lucide-react";
 import { Product, AdVideoResult, TaskStatus } from "../types";
-import { generateAdVideoApi, subscribeVideoProgress, saveTask, deleteTask } from "../utils/api";
+import { generateAdVideoApi, subscribeVideoProgress, saveTask, deleteTask, autoSaveVideo } from "../utils/api";
 import { compressImage } from "../utils/imageCompress";
 
 interface AdVideoStepProps {
@@ -39,8 +39,9 @@ export default function AdVideoStep({
   const [pollStatus, setPollStatus] = useState("");
   const [videoLogs, setVideoLogs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [videoDuration, setVideoDuration] = useState(15);
   const [trimStart, setTrimStart] = useState(0);
-  const [trimEnd, setTrimEnd] = useState(15);
+  const [trimEnd, setTrimEnd] = useState(videoDuration);
   const [isTrimming, setIsTrimming] = useState(false);
   const [trimmedVideoUrl, setTrimmedVideoUrl] = useState<string | undefined>();
   const [referenceImage, setReferenceImage] = useState<string | undefined>(sourceImageUrl);
@@ -169,21 +170,34 @@ export default function AdVideoStep({
       const videoBody: Record<string, any> = {
         model: "agnes-video-v2.0",
         prompt: videoPrompt,
-        num_frames: 361,
+        num_frames: Math.round((videoDuration * 24 - 1) / 8) * 8 + 1,
         frame_rate: 24,
       };
 
       if (referenceImage) {
-        // Compress image before sending
-        setVideoLogs(prev => [...prev, "🌐 Compressing reference image..."]);
-        try {
-          const compressed = await compressImage(referenceImage, 1024, 0.85);
-          videoBody.image = compressed;
-          setVideoLogs(prev => [...prev, "✅ Image compressed, using as reference"]);
-        } catch (err) {
-          // Fallback to original if compression fails
+        // If referenceImage is already a URL, use it directly
+        if (referenceImage.startsWith("http")) {
           videoBody.image = referenceImage;
-          setVideoLogs(prev => [...prev, "⚠️ Compression failed, using original image"]);
+          setVideoLogs(prev => [...prev, "✅ Using reference image URL directly"]);
+        } else {
+          // It's base64, upload to get a public URL
+          setVideoLogs(prev => [...prev, "🌐 Uploading reference image..."]);
+          try {
+            const uploadResp = await fetch("/api/upload-image", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ base64: referenceImage, name: "ref" }),
+            });
+            const uploadData = await uploadResp.json();
+            if (uploadData.url) {
+              videoBody.image = uploadData.url;
+              setVideoLogs(prev => [...prev, "✅ Image uploaded, using URL"]);
+            } else {
+              setVideoLogs(prev => [...prev, `⚠️ Upload failed: ${uploadData.error || JSON.stringify(uploadData)}`]);
+            }
+          } catch (err: any) {
+            setVideoLogs(prev => [...prev, `⚠️ Upload error: ${err.message}`]);
+          }
         }
       }
 
@@ -337,7 +351,7 @@ export default function AdVideoStep({
       videoUrl,
       videoTaskId,
       status: videoStatus,
-      duration: 15,
+      duration: videoDuration,
       createdAt: Date.now(),
     });
   };
@@ -356,7 +370,7 @@ export default function AdVideoStep({
                 <Film className="w-5 h-5 text-blue-400" />
                 AI Ad Video
               </h1>
-              <p className="text-xs text-slate-400 mt-1">AI optimizes prompts, generates 15s product ad video</p>
+              <p className="text-xs text-slate-400 mt-1">AI optimizes prompts, generates product ad video</p>
             </div>
           </div>
           {videoStatus === "completed" && (
@@ -483,6 +497,27 @@ export default function AdVideoStep({
               />
             </div>
 
+            {/* Duration Selector */}
+            <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-4">
+              <label className="text-xs font-semibold text-slate-300 block mb-3">Video Duration</label>
+              <div className="flex gap-2">
+                {[5, 10, 15, 20, 25, 30].map((sec) => (
+                  <button
+                    key={sec}
+                    onClick={() => setVideoDuration(sec)}
+                    disabled={isGenerating}
+                    className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
+                      videoDuration === sec
+                        ? "bg-blue-600 text-white"
+                        : "bg-[#1f1f22] text-slate-400 hover:bg-white/5"
+                    } disabled:opacity-50`}
+                  >
+                    {sec}s
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Generate Video Button */}
             <button
               onClick={handleGenerateVideo}
@@ -497,7 +532,7 @@ export default function AdVideoStep({
               ) : (
                 <>
                   <Play className="w-4 h-4" />
-                  Generate 15s Video
+                  Generate {videoDuration}s Video
                 </>
               )}
             </button>

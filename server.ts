@@ -68,6 +68,73 @@ app.post("/api/output/save-image", async (req, res) => {
   }
 });
 
+// Save video to output folder
+app.post("/api/output/save-video", async (req, res) => {
+  const { videoUrl, name } = req.body;
+  if (!videoUrl) return res.status(400).json({ error: "Missing videoUrl" });
+  if (!currentSessionDir) {
+    const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    currentSessionDir = path.join(OUTPUTS_DIR, `session_${ts}`);
+    fs.mkdirSync(currentSessionDir, { recursive: true });
+  }
+  try {
+    const filename = (name || "video") + ".mp4";
+    const filepath = path.join(currentSessionDir, filename);
+    await downloadFile(videoUrl, filepath);
+    res.json({ path: filepath, filename });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Upload base64 image to freeimage.host and return public URL (Agnes API requires public URLs)
+app.post("/api/upload-image", async (req, res) => {
+  const { base64 } = req.body;
+  if (!base64) return res.status(400).json({ error: "Missing base64" });
+
+  // Parse base64
+  const matches = base64.match(/^data:image\/(\w+);base64,(.+)$/);
+  if (!matches) return res.status(400).json({ error: "Invalid base64 format" });
+
+  const imageData = matches[2]; // raw base64 without prefix
+  const ext = matches[1] === "png" ? "png" : "jpg";
+
+  try {
+    // Convert base64 to buffer
+    const buffer = Buffer.from(imageData, "base64");
+
+    // Upload to freeimage.host (free, no API key needed for small uploads)
+    const formData = new FormData();
+    formData.append("source", new Blob([buffer], { type: `image/${ext}` }), `upload.${ext}`);
+    formData.append("type", "file");
+    formData.append("action", "upload");
+    formData.append("key", "6d207e02198a847aa98d0a2a901485a5"); // free anonymous key
+
+    const uploadResp = await fetch("https://freeimage.host/api/1/upload", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!uploadResp.ok) {
+      const errText = await uploadResp.text();
+      console.error("FreeImage upload failed:", errText);
+      return res.status(500).json({ error: "Image upload failed" });
+    }
+
+    const uploadData: any = await uploadResp.json();
+    const publicUrl = uploadData.image?.url;
+    if (!publicUrl) {
+      return res.status(500).json({ error: "No URL in upload response" });
+    }
+
+    console.log("Image uploaded to freeimage.host:", publicUrl);
+    res.json({ url: publicUrl });
+  } catch (err: any) {
+    console.error("Upload error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Serve output files
 const OUTPUTS_STATIC = path.join(process.cwd(), "outputs");
 app.use("/outputs", express.static(OUTPUTS_STATIC));

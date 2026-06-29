@@ -7,6 +7,7 @@ import React, { useState } from "react";
 import { Sparkles, ArrowLeft, ArrowRight, RefreshCw, Package } from "lucide-react";
 import { Product, LogoResult, LogoVariant, TaskStatus } from "../types";
 import { generateLogoApi } from "../utils/api";
+import { autoSaveImage } from "../utils/api";
 import { createToast } from "./Toast";
 import DragDropZone from "./DragDropZone";
 import ImageVariantGrid from "./ImageVariantGrid";
@@ -14,21 +15,35 @@ import ImageVariantGrid from "./ImageVariantGrid";
 interface LogoGenerateStepProps {
   apiKey: string;
   product: Product;
+  variants: LogoVariant[];
+  isGenerating: boolean;
+  onVariantsChange: (variants: LogoVariant[]) => void;
+  onGeneratingChange: (generating: boolean) => void;
+  onLogoSelected: (imageUrl: string) => void;
   onBack: () => void;
   onNext: (logoResult: LogoResult) => void;
   addToast?: (toast: any) => void;
 }
 
-export default function LogoGenerateStep({ apiKey, product, onBack, onNext, addToast }: LogoGenerateStepProps) {
-  const [variants, setVariants] = useState<LogoVariant[]>([]);
-  const [isGenerating, setIsGenerating] = useState(false);
+export default function LogoGenerateStep({
+  apiKey,
+  product,
+  variants,
+  isGenerating,
+  onVariantsChange,
+  onGeneratingChange,
+  onLogoSelected,
+  onBack,
+  onNext,
+  addToast,
+}: LogoGenerateStepProps) {
   const [referenceImage, setReferenceImage] = useState<string | undefined>();
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [editedPrompts, setEditedPrompts] = useState<Record<string, string>>({});
   const [variantCount, setVariantCount] = useState(3);
 
   const handleGenerate = async () => {
-    setIsGenerating(true);
+    onGeneratingChange(true);
     try {
       const result = await generateLogoApi(apiKey, product, variantCount);
 
@@ -39,14 +54,12 @@ export default function LogoGenerateStep({ apiKey, product, onBack, onNext, addT
         status: "idle" as TaskStatus,
       }));
 
-      setVariants(newVariants);
+      onVariantsChange(newVariants);
 
       // Generate images for each variant in parallel
       for (let i = 0; i < newVariants.length; i++) {
         const variant = newVariants[i];
-        setVariants((prev) =>
-          prev.map((v) => (v.id === variant.id ? { ...v, status: "generating" } : v))
-        );
+        onVariantsChange(newVariants.map((v) => (v.id === variant.id ? { ...v, status: "generating" as TaskStatus } : v)));
 
         try {
           const response = await fetch("/api/proxy/images", {
@@ -69,25 +82,25 @@ export default function LogoGenerateStep({ apiKey, product, onBack, onNext, addT
           const imageUrl = data.data?.[0]?.url;
 
           if (imageUrl) {
-            setVariants((prev) =>
-              prev.map((v) =>
-                v.id === variant.id ? { ...v, imageUrl, status: "completed" } : v
-              )
-            );
+            onVariantsChange(newVariants.map((v) =>
+              v.id === variant.id ? { ...v, imageUrl, status: "completed" as TaskStatus } : v
+            ));
+            // Auto-save to output folder
+            autoSaveImage(imageUrl, `logo_${i + 1}`);
           } else {
             throw new Error("No image URL in response");
           }
         } catch (err) {
           console.error(`Failed to generate logo variant ${i + 1}:`, err);
-          setVariants((prev) =>
-            prev.map((v) => (v.id === variant.id ? { ...v, status: "failed" } : v))
-          );
+          onVariantsChange(newVariants.map((v) =>
+            v.id === variant.id ? { ...v, status: "failed" as TaskStatus } : v
+          ));
         }
       }
     } catch (err: any) {
       console.error("Failed to generate logo prompts:", err);
     } finally {
-      setIsGenerating(false);
+      onGeneratingChange(false);
     }
   };
 
@@ -97,9 +110,7 @@ export default function LogoGenerateStep({ apiKey, product, onBack, onNext, addT
 
     const prompt = editedPrompts[variantId] || variant.prompt;
 
-    setVariants((prev) =>
-      prev.map((v) => (v.id === variantId ? { ...v, status: "generating" } : v))
-    );
+    onVariantsChange(variants.map((v) => (v.id === variantId ? { ...v, status: "generating" as TaskStatus } : v)));
 
     try {
       const response = await fetch("/api/proxy/images", {
@@ -122,16 +133,17 @@ export default function LogoGenerateStep({ apiKey, product, onBack, onNext, addT
       const imageUrl = data.data?.[0]?.url;
 
       if (imageUrl) {
-        setVariants((prev) =>
-          prev.map((v) =>
-            v.id === variantId ? { ...v, prompt, imageUrl, status: "completed" } : v
-          )
-        );
+        onVariantsChange(variants.map((v) =>
+          v.id === variantId ? { ...v, prompt, imageUrl, status: "completed" as TaskStatus } : v
+        ));
+        // Auto-save to output folder
+        const idx = variants.findIndex(v => v.id === variantId);
+        autoSaveImage(imageUrl, `logo_${idx + 1}_regen`);
       }
     } catch (err) {
-      setVariants((prev) =>
-        prev.map((v) => (v.id === variantId ? { ...v, status: "failed" } : v))
-      );
+      onVariantsChange(variants.map((v) =>
+        v.id === variantId ? { ...v, status: "failed" as TaskStatus } : v
+      ));
     }
   };
 
@@ -140,6 +152,7 @@ export default function LogoGenerateStep({ apiKey, product, onBack, onNext, addT
     const variant = variants.find((v) => v.id === selectedId);
     if (!variant?.imageUrl) return;
 
+    onLogoSelected(variant.imageUrl);
     onNext({
       id: `logo_${Date.now()}`,
       product,
@@ -274,42 +287,32 @@ export default function LogoGenerateStep({ apiKey, product, onBack, onNext, addT
                   }}
                 />
 
-                {/* Prompt Refinement Area */}
-                {selectedId && (
-                  <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-4">
-                    <span className="text-xs font-semibold text-slate-300 block mb-3">Prompt Refinement</span>
-                    <div className="grid grid-cols-3 gap-3">
-                      {variants.filter(v => v.status === "completed").map((variant) => (
-                        <div
-                          key={variant.id}
-                          className={`p-2 rounded-lg border cursor-pointer transition-all ${
-                            editedPrompts[variant.id] !== undefined
-                              ? "border-orange-500/50 bg-orange-500/5"
-                              : "border-white/5 hover:border-white/10"
-                          }`}
-                          onClick={() => setSelectedId(variant.id)}
-                        >
+                {/* Prompt Refinement Area - show only selected variant */}
+                {selectedId && (() => {
+                  const selectedVariant = variants.find(v => v.id === selectedId);
+                  if (!selectedVariant || selectedVariant.status !== "completed") return null;
+                  return (
+                    <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-4">
+                      <span className="text-xs font-semibold text-slate-300 block mb-3">Edit Prompt & Regenerate</span>
+                      <div className="flex gap-3">
+                        <div className="flex-1">
                           <textarea
-                            value={editedPrompts[variant.id] ?? variant.prompt}
-                            onChange={(e) => setEditedPrompts(prev => ({ ...prev, [variant.id]: e.target.value }))}
-                            rows={3}
-                            className="w-full px-2 py-1.5 bg-[#1f1f22] border border-white/10 rounded-lg text-[10px] text-slate-300 resize-none focus:outline-none focus:border-orange-500/30"
-                            onClick={(e) => e.stopPropagation()}
+                            value={editedPrompts[selectedVariant.id] ?? selectedVariant.prompt}
+                            onChange={(e) => setEditedPrompts(prev => ({ ...prev, [selectedVariant.id]: e.target.value }))}
+                            rows={4}
+                            className="w-full px-3 py-2 bg-[#1f1f22] border border-white/10 rounded-lg text-xs text-slate-300 resize-none focus:outline-none focus:border-orange-500/30"
                           />
                           <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleRegenerate(variant.id);
-                            }}
-                            className="mt-2 w-full py-1 bg-orange-600/20 hover:bg-orange-600/30 text-orange-300 rounded text-[10px] font-semibold transition-colors"
+                            onClick={() => handleRegenerate(selectedVariant.id)}
+                            className="mt-2 px-4 py-2 bg-orange-600/20 hover:bg-orange-600/30 text-orange-300 rounded-lg text-xs font-semibold transition-colors"
                           >
                             Regenerate
                           </button>
                         </div>
-                      ))}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </>
             ) : (
               <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-12 text-center">

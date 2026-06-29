@@ -543,3 +543,21 @@ export async function getCurrentOutputFolder(): Promise<string | null> {
   const data = await res.json();
   return data.path;
 }
+
+// Auto-save image to current output folder (fire-and-forget)
+export function autoSaveImage(imageUrl: string, name: string): void {
+  fetch("/api/output/save-image", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ imageUrl, name }),
+  }).catch(() => {});
+}
+
+// Auto-save video to current output folder (fire-and-forget)
+export function autoSaveVideo(videoUrl: string, name: string): void {
+  fetch("/api/output/save-video", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ videoUrl, name }),
+  }).catch(() => {});
+}

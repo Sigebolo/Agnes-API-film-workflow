@@ -17,7 +17,7 @@ import LogoGenerateStep from "./components/LogoGenerateStep";
 import ProductImageStep from "./components/ProductImageStep";
 import AdVideoStep from "./components/AdVideoStep";
 import { ToastContainer, ToastItem, createToast } from "./components/Toast";
-import { loadWorkflow, saveWorkflow } from "./utils/storage";
+import { loadWorkflow, saveWorkflow, saveAdWorkflow, loadAdWorkflow } from "./utils/storage";
 import { createOutputFolder } from "./utils/api";
 
 const LOCAL_STORAGE_KEY_API = "agnes_api_key_v2";
@@ -66,18 +66,41 @@ function getInitialState(): WorkflowState {
   return defaultState;
 }
 
+function getInitialAdState() {
+  if (typeof window === "undefined") {
+    return { isAdMode: true, adStep: "product" as AdWorkflowStep, adProduct: defaultProduct, logoResult: null, logoVariants: [], isLogoGenerating: false, imageResult: null, videoResult: null, outputFolder: null };
+  }
+  const saved = loadAdWorkflow();
+  return {
+    isAdMode: saved?.isAdMode ?? true,
+    adStep: saved?.adStep ?? "product",
+    adProduct: saved?.adProduct ?? defaultProduct,
+    logoResult: saved?.logoResult ?? null,
+    logoVariants: saved?.logoVariants ?? [],
+    isLogoGenerating: saved?.isLogoGenerating ?? false,
+    selectedLogoUrl: saved?.selectedLogoUrl ?? null,
+    imageResult: saved?.imageResult ?? null,
+    videoResult: saved?.videoResult ?? null,
+    outputFolder: saved?.outputFolder ?? null,
+  };
+}
+
 export default function App() {
   const [state, setState] = useState<WorkflowState>(getInitialState);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Ad workflow state
-  const [isAdMode, setIsAdMode] = useState(true);
-  const [adStep, setAdStep] = useState<AdWorkflowStep>("product");
-  const [adProduct, setAdProduct] = useState<Product>(defaultProduct);
-  const [logoResult, setLogoResult] = useState<LogoResult | null>(null);
-  const [imageResult, setImageResult] = useState<ProductImageResult | null>(null);
-  const [videoResult, setVideoResult] = useState<AdVideoResult | null>(null);
-  const [outputFolder, setOutputFolder] = useState<string | null>(null);
+  // Ad workflow state (loaded from localStorage)
+  const initialAd = getInitialAdState();
+  const [isAdMode, setIsAdMode] = useState(initialAd.isAdMode);
+  const [adStep, setAdStep] = useState<AdWorkflowStep>(initialAd.adStep);
+  const [adProduct, setAdProduct] = useState<Product>(initialAd.adProduct);
+  const [logoResult, setLogoResult] = useState<LogoResult | null>(initialAd.logoResult);
+  const [logoVariants, setLogoVariants] = useState<LogoVariant[]>(initialAd.logoVariants);
+  const [isLogoGenerating, setIsLogoGenerating] = useState(initialAd.isLogoGenerating);
+  const [selectedLogoUrl, setSelectedLogoUrl] = useState<string | null>(initialAd.selectedLogoUrl);
+  const [imageResult, setImageResult] = useState<ProductImageResult | null>(initialAd.imageResult);
+  const [videoResult, setVideoResult] = useState<AdVideoResult | null>(initialAd.videoResult);
+  const [outputFolder, setOutputFolder] = useState<string | null>(initialAd.outputFolder);
 
   // Save workflow to localStorage (debounced 500ms)
   useEffect(() => {
@@ -89,6 +112,18 @@ export default function App() {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
   }, [state]);
+
+  // Save ad workflow to localStorage (debounced 500ms)
+  const adSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (adSaveTimerRef.current) clearTimeout(adSaveTimerRef.current);
+    adSaveTimerRef.current = setTimeout(() => {
+      saveAdWorkflow({ isAdMode, adStep, adProduct, logoResult, logoVariants, isLogoGenerating, selectedLogoUrl, imageResult, videoResult, outputFolder });
+    }, 500);
+    return () => {
+      if (adSaveTimerRef.current) clearTimeout(adSaveTimerRef.current);
+    };
+  }, [isAdMode, adStep, adProduct, logoResult, logoVariants, isLogoGenerating, selectedLogoUrl, imageResult, videoResult, outputFolder]);
 
   // Save legacy API key for backward compatibility
   useEffect(() => {
@@ -161,6 +196,10 @@ export default function App() {
   const handleLogoComplete = (result: LogoResult) => {
     setLogoResult(result);
     handleAdNext("product-image");
+  };
+
+  const handleLogoSelected = (imageUrl: string) => {
+    setSelectedLogoUrl(imageUrl);
   };
 
   const handleImageComplete = (result: ProductImageResult) => {
@@ -341,6 +380,11 @@ export default function App() {
                           <LogoGenerateStep
                             apiKey={state.apiKey}
                             product={adProduct}
+                            variants={logoVariants}
+                            isGenerating={isLogoGenerating}
+                            onVariantsChange={setLogoVariants}
+                            onGeneratingChange={setIsLogoGenerating}
+                            onLogoSelected={handleLogoSelected}
                             onBack={handleAdBack}
                             onNext={handleLogoComplete}
                           />
@@ -350,6 +394,7 @@ export default function App() {
                           <ProductImageStep
                             apiKey={state.apiKey}
                             product={adProduct}
+                            logoImageUrl={selectedLogoUrl || logoResult?.variants.find(v => v.status === "completed")?.imageUrl || ""}
                             onBack={handleAdBack}
                             onNext={handleImageComplete}
                           />

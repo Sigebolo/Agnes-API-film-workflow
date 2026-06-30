@@ -4,6 +4,8 @@
 
 **免费生成 Logo、文案、视频广告 — 专为个人和小企业设计**
 
+[English](#english) | 中文
+
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org)
 
@@ -100,10 +102,168 @@ outputs/
     └── metadata.json
 ```
 
+## 🤖 Agent 自动化
+
+你可以让 AI Agent（Claude Code、OpenCode 等）自动帮你生成视频。
+
+### 安装 Skill
+
+```bash
+# 复制 skill 到你的 agent 配置目录
+cp -r skills/agnes-video-generation ~/.config/opencode/skills/
+# 或 Claude Code
+cp -r skills/agnes-video-generation ~/.claude/skills/
+```
+
+### Agent 自动调用
+
+安装后，Agent 会自动识别任务并调用 skill：
+
+```
+你：帮我生成一个护肤产品的广告视频
+Agent：（自动调用 agnes-video-generation skill）
+    1. 生成产品文案
+    2. 生成营销图片
+    3. 上传图片获取 URL
+    4. 调用 Agnes API 生成视频
+    5. 返回视频文件
+```
+
+### Python 直接调用
+
+```python
+from agnes_video import generate_video
+
+result = generate_video(
+    image_url="https://example.com/product.jpg",
+    prompt="一位专业女性介绍这款护肤品的功效...",
+    duration=15,
+    api_key="sk-xxx"
+)
+print(result["video_url"])
+```
+
 ## 开源协议
 
 [MIT](LICENSE) — 免费使用，自由修改。
 
 ---
 
-**给你的产品做一个免费广告** ⭐
+# English
+
+## What is it?
+
+Agnes Film Studio is a free AI video maker. Enter your product info and AI automatically generates:
+
+- 🎨 **Logo** — Multiple style options
+- 📝 **Marketing Copy** — E-commerce, social media, poster content
+- 🎬 **Video Ads** — 5-30 seconds with character presentation
+
+**No editing skills. No designers. No actors. Just describe your product.**
+
+## Core Features
+
+### Image-to-Video
+Upload a character photo and AI makes them present your product.
+
+### One-Click Generation
+Enter product name and description → auto-generate logo → marketing images → video ad.
+
+### Duration Control
+5 to 30 seconds, choose as needed.
+
+### Free
+Agnes AI provides free credits. This project is fully open source.
+
+## Quick Start
+
+```bash
+npm install
+npm run dev
+# Open http://localhost:3000
+```
+
+Windows: Double-click `启动Agnes.bat`
+
+## How It Works
+
+```
+Enter product info (name, description, features)
+        ↓
+  AI generates logo (3 styles)
+        ↓
+  Choose your favorite
+        ↓
+  AI generates product images (ecommerce/social/poster)
+        ↓
+  AI generates video ad (optional: upload character photo)
+        ↓
+  Auto-saved to output folder
+```
+
+## Image-to-Video
+
+1. Upload a character photo
+2. Write a product introduction
+3. AI makes the character "speak" and present your product
+
+Perfect for:
+- E-commerce product demos
+- Social media ads
+- Short video content
+- Personal branding
+
+## Agent Automation
+
+Let AI agents generate videos for you automatically.
+
+### Install Skill
+
+```bash
+cp -r skills/agnes-video-generation ~/.config/opencode/skills/
+# or Claude Code
+cp -r skills/agnes-video-generation ~/.claude/skills/
+```
+
+### Agent Auto-Call
+
+After installation, agents automatically detect and use the skill:
+
+```
+You: Make a skincare product ad video
+Agent: (auto-calls agnes-video-generation skill)
+    1. Generates product copy
+    2. Generates marketing images
+    3. Uploads image, gets URL
+    4. Calls Agnes API to generate video
+    5. Returns video file
+```
+
+### Python Direct Call
+
+```python
+from agnes_video import generate_video
+
+result = generate_video(
+    image_url="https://example.com/product.jpg",
+    prompt="A professional woman presenting skincare benefits...",
+    duration=15,
+    api_key="sk-xxx"
+)
+print(result["video_url"])
+```
+
+## Tech Stack
+
+- **Frontend**: React + TypeScript + Tailwind CSS
+- **Backend**: Express + WebSocket
+- **AI**: Agnes AI (text/image/video generation)
+- **Video**: FFmpeg
+
+## License
+
+[MIT](LICENSE) — Free to use, free to modify.
+
+---
+
+**Make a free ad for your product** ⭐

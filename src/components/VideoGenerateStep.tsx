@@ -6,7 +6,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Film, Sparkles, RefreshCw, Save, ArrowLeft, Plus, CheckCircle, ArrowRight, Hourglass, AlertTriangle, RotateCw, Image as ImageIcon, StopCircle } from "lucide-react";
 import { VideoClip } from "../types";
-import { createVideoTaskApi, subscribeVideoProgress } from "../utils/api";
+import { createVideoTaskApi, subscribeVideoProgress, saveTask, queryTaskStatus, autoSaveVideo } from "../utils/api";
 import { compressImage, getImageSizeInfo } from "../utils/imageCompress";
 import { ToastItem, createToast } from "./Toast";
 
@@ -37,7 +37,7 @@ export default function VideoGenerateStep({
   const [subtitleText, setSubtitleText] = useState(activeClip.subtitle || "");
   const [isPolling, setIsPolling] = useState(false);
   const [videoProgress, setVideoProgress] = useState(0);
-  const [videoDuration, setVideoDuration] = useState<5 | 10 | 15>(activeClip.duration as 5 | 10 | 15 || 5);
+  const [videoDuration, setVideoDuration] = useState<number>(activeClip.duration || 15);
   const activeJobId = activeClip.videoTaskId || null;
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -111,6 +111,9 @@ export default function VideoGenerateStep({
         setVideoLogs(prev => [...prev, "✅ Video rendering completed successfully!", "🎉 Cinematic motion clip synchronized."]);
         setIsGenerating(false);
         setIsVideoLoading(false);
+        saveTask({ id: taskId, type: "video", status: "completed", videoUrl: cacheBustedUrl });
+        // Auto-save video to output folder
+        autoSaveVideo(cacheBustedUrl, `video_${Date.now()}`);
         if (onToast) onToast(createToast("success", "Video generated successfully!"));
       },
       (errMsg) => {
@@ -121,6 +124,7 @@ export default function VideoGenerateStep({
         setIsGenerating(false);
         setIsVideoLoading(false);
         onUpdateClip({ videoTaskStatus: "failed" });
+        saveTask({ id: taskId, type: "video", status: "failed", error: errMsg });
         if (onToast) onToast(createToast("error", `Video generation failed: ${errMsg}`));
       }
     );
@@ -144,20 +148,34 @@ export default function VideoGenerateStep({
       // Compress image before uploading
       let imageUrlToSend = activeClip.imageUrl;
       if (activeClip.imageUrl) {
-        try {
-          const compressed = await compressImage(activeClip.imageUrl, 2048, 0.95);
-          const sizeInfo = getImageSizeInfo(compressed);
-          imageUrlToSend = compressed;
-          setVideoLogs(prev => [
-            ...prev,
-            `📐 Image compressed: ${sizeInfo.sizeKB}KB (${sizeInfo.sizeMB}MB)`
-          ]);
-        } catch (compressErr) {
-          // If compression fails, use original
-          setVideoLogs(prev => [
-            ...prev,
-            "⚠️ Compression failed, using original image"
-          ]);
+        // If it's already a URL, use directly
+        if (activeClip.imageUrl.startsWith("http")) {
+          imageUrlToSend = activeClip.imageUrl;
+          setVideoLogs(prev => [...prev, "✅ Using image URL directly"]);
+        } else {
+          // It's base64, compress then upload to get public URL
+          try {
+            const compressed = await compressImage(activeClip.imageUrl, 2048, 0.95);
+            const sizeInfo = getImageSizeInfo(compressed);
+            setVideoLogs(prev => [...prev, `📐 Image compressed: ${sizeInfo.sizeKB}KB (${sizeInfo.sizeMB}MB)`]);
+            // Upload to get public URL
+            setVideoLogs(prev => [...prev, "🌐 Uploading image to get public URL..."]);
+            const uploadResp = await fetch("/api/upload-image", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ base64: compressed, name: "video_ref" }),
+            });
+            const uploadData = await uploadResp.json();
+            if (uploadData.url) {
+              imageUrlToSend = uploadData.url;
+              setVideoLogs(prev => [...prev, "✅ Image uploaded, using public URL"]);
+            } else {
+              setVideoLogs(prev => [...prev, "⚠️ Upload failed, proceeding without image"]);
+              imageUrlToSend = undefined;
+            }
+          } catch (compressErr) {
+            setVideoLogs(prev => [...prev, "⚠️ Compression failed, using original image"]);
+          }
         }
       }
 
@@ -166,22 +184,60 @@ export default function VideoGenerateStep({
         "🌐 Uploading reference keyframe to Agnes neural cluster..."
       ]);
 
-      const { video_id, task_id } = await createVideoTaskApi(
-        apiKey,
-        activeClip.videoPrompt,
-        imageUrlToSend,
-        videoDuration
-      );
+      // Retry loop for 503 Service Busy
+      let result: { video_id?: string; task_id?: string } | null = null;
+      const MAX_SUBMIT_RETRIES = 5;
+      const RETRY_DELAY_S = 30;
+      for (let attempt = 1; attempt <= MAX_SUBMIT_RETRIES; attempt++) {
+        try {
+          result = await createVideoTaskApi(
+            apiKey,
+            activeClip.videoPrompt,
+            imageUrlToSend,
+            videoDuration
+          );
+          break;
+        } catch (submitErr: any) {
+          const is503 = submitErr.message?.includes("503") || submitErr.message?.includes("busy");
+          if (is503 && attempt < MAX_SUBMIT_RETRIES) {
+            for (let s = RETRY_DELAY_S; s > 0; s--) {
+              setPollStatus(`Server busy, retrying in ${s}s (attempt ${attempt})...`);
+              setVideoLogs(prev => {
+                const last = prev[prev.length - 1];
+                const msg = `⏳ Server busy, retrying in ${s}s (attempt ${attempt})...`;
+                if (last?.startsWith("⏳")) return [...prev.slice(0, -1), msg];
+                return [...prev, msg];
+              });
+              await new Promise(r => setTimeout(r, 1000));
+            }
+            continue;
+          }
+          throw submitErr;
+        }
+      }
 
+      if (!result) throw new Error("Submission failed: server busy after multiple retries, please try again later.");
+
+      const { video_id, task_id } = result;
+      // CRITICAL: Use video_id for polling (NOT task_id!)
       const resolvedJobId = video_id || task_id || "VID-" + Math.random().toString(36).substr(2, 9).toUpperCase();
       onUpdateClip({ videoTaskId: resolvedJobId, videoTaskStatus: "polling", duration: videoDuration });
       setVideoLogs(prev => [
         ...prev,
-        `✓ Reference keyframe validated successfully.`,
-        `📡 Dispatched Agnes Job ID: ${resolvedJobId}`,
-        "⚙️ Bootstrapping Agnes video interpolation engine..."
+        `✓ Task submitted successfully`,
+        `📡 Video ID: ${resolvedJobId}`,
+        "⚙️ Starting video generation..."
       ]);
-      setPollStatus("Video task created. Connecting via WebSocket...");
+      setPollStatus("Video task created, connecting...");
+
+      // Save task to registry
+      saveTask({
+        id: resolvedJobId,
+        type: "video",
+        prompt: activeClip.videoPrompt,
+        imageUrl: imageUrlToSend,
+        status: "queued",
+      });
 
       connectWebSocket(resolvedJobId);
     } catch (err: any) {
@@ -303,13 +359,16 @@ export default function VideoGenerateStep({
               </label>
               <select
                 value={videoDuration}
-                onChange={(e) => setVideoDuration(Number(e.target.value) as 5 | 10 | 15)}
+                onChange={(e) => setVideoDuration(Number(e.target.value))}
                 disabled={isGenerating}
                 className="w-full px-3 py-2 bg-[#1f1f22] border border-white/10 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-orange-500/50 disabled:opacity-50"
               >
                 <option value={5}>5s</option>
                 <option value={10}>10s</option>
                 <option value={15}>15s</option>
+                <option value={20}>20s</option>
+                <option value={25}>25s</option>
+                <option value={30}>30s</option>
               </select>
             </div>
           </div>

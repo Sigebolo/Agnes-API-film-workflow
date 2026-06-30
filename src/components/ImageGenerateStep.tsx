@@ -229,7 +229,7 @@ export default function ImageGenerateStep({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-orange-500 animate-pulse" />
-                <span className="text-xs font-semibold text-slate-200 uppercase tracking-wider">Image-to-Image (图生图)</span>
+                <span className="text-xs font-semibold text-slate-200 uppercase tracking-wider">Image-to-Image</span>
               </div>
               <label className="relative inline-flex items-center cursor-pointer select-none">
                 <input

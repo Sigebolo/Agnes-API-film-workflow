@@ -6,13 +6,14 @@
 import React, { useState } from "react";
 import { Image as ImageIcon, ArrowLeft, ArrowRight, RefreshCw, Upload, Type } from "lucide-react";
 import { Product, ProductImageResult, MarketingVariant, MarketingScene, TaskStatus } from "../types";
-import { generateProductImageApi } from "../utils/api";
+import { generateProductImageApi, autoSaveImage } from "../utils/api";
 import DragDropZone from "./DragDropZone";
 import ImageVariantGrid from "./ImageVariantGrid";
 
 interface ProductImageStepProps {
   apiKey: string;
   product: Product;
+  logoImageUrl?: string;
   onBack: () => void;
   onNext: (imageResult: ProductImageResult) => void;
 }
@@ -24,9 +25,9 @@ const SCENE_LABELS: Record<MarketingScene, string> = {
   lifestyle: "Lifestyle",
 };
 
-export default function ProductImageStep({ apiKey, product, onBack, onNext }: ProductImageStepProps) {
+export default function ProductImageStep({ apiKey, product, logoImageUrl, onBack, onNext }: ProductImageStepProps) {
   const [inputMode, setInputMode] = useState<"upload" | "text">("upload");
-  const [sourceImage, setSourceImage] = useState<string | undefined>();
+  const [sourceImage, setSourceImage] = useState<string | undefined>(logoImageUrl);
   const [textDesc, setTextDesc] = useState(product.description || "");
   const [variants, setVariants] = useState<MarketingVariant[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -98,6 +99,9 @@ export default function ProductImageStep({ apiKey, product, onBack, onNext }: Pr
                 v.id === variant.id ? { ...v, imageUrl, status: "completed" } : v
               )
             );
+            // Auto-save to output folder
+            const sceneLabel = variant.scene || "marketing";
+            autoSaveImage(imageUrl, `${sceneLabel}_${i + 1}`);
           }
         } catch (err) {
           setVariants((prev) =>

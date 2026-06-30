@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from "react";
-import { Key, Megaphone, HelpCircle, AlertCircle, Sparkles, Folder, ChevronRight, Settings, Check, Save, Package, Image as ImageIcon, Film, Layers } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { Key, Megaphone, HelpCircle, AlertCircle, Sparkles, Folder, ChevronRight, Settings, Check, Save, Package, Image as ImageIcon, Film, Layers, Clock, RefreshCw, ExternalLink, Trash2 } from "lucide-react";
 import { WorkflowState } from "../types";
+import { listTasks, saveTask, deleteTask, queryTaskStatus, TaskRecord } from "../utils/api";
 
 interface SidebarProps {
   apiKey: string;
@@ -14,6 +15,7 @@ interface SidebarProps {
   state: WorkflowState;
   isAdMode?: boolean;
   adStep?: string;
+  outputFolder?: string | null;
 }
 
 export default function Sidebar({
@@ -23,11 +25,20 @@ export default function Sidebar({
   state,
   isAdMode,
   adStep,
+  outputFolder,
 }: SidebarProps) {
   const [savedKey, setSavedKey] = useState(apiKey);
   const [showSaved, setShowSaved] = useState(false);
   const isDirty = apiKey !== savedKey;
   const isDemoKey = apiKey.toLowerCase().includes("demo") || apiKey.includes("••••");
+
+  // Task history
+  const [tasks, setTasks] = useState<TaskRecord[]>([]);
+  const [refreshing, setRefreshing] = useState<string | null>(null);
+
+  useEffect(() => {
+    listTasks().then(setTasks).catch(() => {});
+  }, []);
 
   const handleSave = () => {
     onSaveApiKey(apiKey);
@@ -175,7 +186,186 @@ export default function Sidebar({
             <li>15s ad videos with character dialogue support</li>
           </ul>
         </div>
+
+        {/* Task History */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-orange-500" />
+              Task History
+            </h3>
+            <button
+              onClick={async () => {
+                setRefreshing("all");
+                const updated = await listTasks();
+                setTasks(updated);
+                setRefreshing(null);
+              }}
+              className="text-[10px] text-slate-500 hover:text-orange-400 transition-colors cursor-pointer"
+              title="Refresh task list"
+            >
+              <RefreshCw className={`w-3 h-3 ${refreshing === "all" ? "animate-spin" : ""}`} />
+            </button>
+          </div>
+
+          {/* Manual task input */}
+          <div className="flex gap-1.5">
+            <input
+              type="text"
+              className="flex-1 min-w-0 px-2 py-1.5 bg-[#1f1f22] border border-white/10 focus:border-orange-500/50 rounded-lg text-[10px] text-white font-mono placeholder:text-slate-600 focus:outline-none"
+              placeholder="Paste task ID to track..."
+              id="manual-task-input"
+              onKeyDown={async (e) => {
+                if (e.key === "Enter") {
+                  const input = e.target as HTMLInputElement;
+                  const taskId = input.value.trim();
+                  if (!taskId) return;
+                  input.value = "";
+                  // Check if already in list
+                  if (tasks.some(t => t.id === taskId)) return;
+                  const newTask: TaskRecord = {
+                    id: taskId,
+                    type: "video",
+                    prompt: "Manual entry",
+                    status: "queued",
+                    createdAt: Date.now(),
+                    updatedAt: Date.now(),
+                  };
+                  await saveTask(newTask);
+                  setTasks(prev => [newTask, ...prev]);
+                }
+              }}
+            />
+            <button
+              onClick={async () => {
+                setRefreshing("query-all");
+                const allTasks = await listTasks();
+                const pending = allTasks.filter(t => t.status !== "completed" && t.status !== "failed" && t.status !== "expired" && !t.id.startsWith("pending_"));
+                for (const t of pending) {
+                  try {
+                    const result = await queryTaskStatus(t.id, apiKey);
+                    t.status = result.status;
+                    if (result.videoUrl) t.videoUrl = result.videoUrl;
+                    t.updatedAt = Date.now();
+                    await saveTask(t);
+                  } catch {}
+                }
+                setTasks([...allTasks]);
+                setRefreshing(null);
+              }}
+              className="px-2 py-1.5 bg-orange-500/20 border border-orange-500/30 text-orange-400 rounded-lg text-[10px] font-semibold hover:bg-orange-500/30 transition-colors cursor-pointer flex items-center gap-1"
+              title="Query all pending tasks from Agnes API"
+            >
+              <RefreshCw className={`w-3 h-3 ${refreshing === "query-all" ? "animate-spin" : ""}`} />
+              Query All
+            </button>
+          </div>
+
+          {/* Task list */}
+          {tasks.length === 0 ? (
+            <p className="text-[10px] text-slate-600 text-center py-2">No tasks yet. Generate a video to start tracking.</p>
+          ) : (
+            <div className="space-y-1 max-h-60 overflow-y-auto">
+              {tasks.map((task) => (
+                <div
+                  key={task.id}
+                  className="px-3 py-2 rounded-xl bg-[#1f1f22] border border-white/5 text-xs"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {task.status === "completed" ? (
+                        <Check className="w-3 h-3 text-green-400 flex-shrink-0" />
+                      ) : task.status === "failed" ? (
+                        <AlertCircle className="w-3 h-3 text-red-400 flex-shrink-0" />
+                      ) : task.status === "expired" ? (
+                        <AlertCircle className="w-3 h-3 text-slate-500 flex-shrink-0" />
+                      ) : task.status === "submitting" ? (
+                        <RefreshCw className="w-3 h-3 text-orange-400 flex-shrink-0 animate-spin" />
+                      ) : (
+                        <Clock className="w-3 h-3 text-yellow-400 flex-shrink-0 animate-pulse" />
+                      )}
+                      <span className="truncate text-slate-300 font-mono text-[10px]">
+                        {task.id.slice(0, 20)}...
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {task.status === "completed" && task.videoUrl && (
+                        <a
+                          href={task.videoUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-green-400 hover:text-green-300 transition-colors"
+                          title="Open video"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      )}
+                      <button
+                        onClick={async () => {
+                          setRefreshing(task.id);
+                          try {
+                            const result = await queryTaskStatus(task.id, apiKey);
+                            setTasks(prev =>
+                              prev.map(t =>
+                                t.id === task.id
+                                  ? { ...t, status: result.status, videoUrl: result.videoUrl || t.videoUrl, updatedAt: Date.now() }
+                                  : t
+                              )
+                            );
+                          } catch {}
+                          setRefreshing(null);
+                        }}
+                        className="text-slate-500 hover:text-orange-400 transition-colors cursor-pointer"
+                        title="Refresh status"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${refreshing === task.id ? "animate-spin" : ""}`} />
+                      </button>
+                      <button
+                        onClick={async () => {
+                          await deleteTask(task.id);
+                          setTasks(prev => prev.filter(t => t.id !== task.id));
+                        }}
+                        className="text-slate-500 hover:text-red-400 transition-colors cursor-pointer"
+                        title="Delete"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-1 text-[10px] text-slate-500 truncate">
+                    {task.prompt.slice(0, 50)}{task.prompt.length > 50 ? "..." : ""}
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-2 text-[10px] text-slate-600">
+                    <span>{new Date(task.createdAt).toLocaleString()}</span>
+                    <span className={`font-semibold ${
+                      task.status === "completed" ? "text-green-500" :
+                      task.status === "failed" ? "text-red-500" :
+                      task.status === "expired" ? "text-slate-500" :
+                      task.status === "submitting" ? "text-orange-400" : "text-yellow-500"
+                    }`}>
+                      {task.status === "submitting" ? "submitting..." : task.status}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Output folder link */}
+      {outputFolder && (
+        <a
+          href={outputFolder}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="pb-1 text-[10px] text-slate-500 hover:text-orange-400 transition-colors flex items-center gap-1 truncate"
+          title="Open output folder"
+        >
+          <Folder className="w-3 h-3 flex-shrink-0" />
+          <span className="truncate">{outputFolder}</span>
+        </a>
+      )}
 
       {/* Footer */}
       <div className="pt-4 border-t border-white/5 flex items-center justify-between text-[10px] text-slate-500 font-mono">

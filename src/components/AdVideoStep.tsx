@@ -4,9 +4,10 @@
  */
 
 import React, { useState, useRef, useEffect } from "react";
-import { Film, ArrowLeft, Sparkles, RefreshCw, Play, CheckCircle, AlertTriangle, User, StopCircle, Scissors } from "lucide-react";
+import { Film, ArrowLeft, Sparkles, RefreshCw, Play, CheckCircle, AlertTriangle, User, StopCircle, Scissors, Upload, X } from "lucide-react";
 import { Product, AdVideoResult, TaskStatus } from "../types";
-import { generateAdVideoApi, subscribeVideoProgress } from "../utils/api";
+import { generateAdVideoApi, subscribeVideoProgress, saveTask, deleteTask, autoSaveVideo } from "../utils/api";
+import { compressImage } from "../utils/imageCompress";
 
 interface AdVideoStepProps {
   apiKey: string;
@@ -38,10 +39,13 @@ export default function AdVideoStep({
   const [pollStatus, setPollStatus] = useState("");
   const [videoLogs, setVideoLogs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [videoDuration, setVideoDuration] = useState(15);
   const [trimStart, setTrimStart] = useState(0);
-  const [trimEnd, setTrimEnd] = useState(15);
+  const [trimEnd, setTrimEnd] = useState(videoDuration);
   const [isTrimming, setIsTrimming] = useState(false);
   const [trimmedVideoUrl, setTrimmedVideoUrl] = useState<string | undefined>();
+  const [referenceImage, setReferenceImage] = useState<string | undefined>(sourceImageUrl);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
@@ -98,6 +102,15 @@ export default function AdVideoStep({
           setPollStatus("Success");
           setVideoLogs(prev => [...prev, "✅ Video rendering completed!", "🎉 Cinematic motion clip ready."]);
           setIsGenerating(false);
+          saveTask({ id: taskId, type: "video", status: "completed", videoUrl: cacheBustedUrl, imageUrl: referenceImage || sourceImageUrl, prompt: videoPrompt });
+          // Auto-save reference image to output folder
+          if (referenceImage || sourceImageUrl) {
+            fetch("/api/output/save-image", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ imageUrl: referenceImage || sourceImageUrl, name: "reference" }),
+            }).catch(() => {});
+          }
         } else if (msg.type === "error") {
           setError(msg.message);
           setVideoLogs(prev => [...prev, `❌ Error: ${msg.message}`]);
@@ -105,6 +118,7 @@ export default function AdVideoStep({
           setVideoProgress(0);
           setIsGenerating(false);
           setVideoStatus("failed");
+          saveTask({ id: taskId, type: "video", status: "failed", error: msg.message });
         } else if (msg.type === "progress") {
           setPollStatus(msg.message || "");
           if (msg.progress !== undefined) {
@@ -141,17 +155,52 @@ export default function AdVideoStep({
       "📡 Constructing video parameters...",
     ]);
 
+    // Save immediately with temp ID so it appears in sidebar
+    const tempId = `pending_${Date.now()}`;
+    setVideoTaskId(tempId);
+    saveTask({
+      id: tempId,
+      type: "video",
+      prompt: videoPrompt,
+      imageUrl: referenceImage || sourceImageUrl,
+      status: "submitting",
+    });
+
     try {
       const videoBody: Record<string, any> = {
         model: "agnes-video-v2.0",
         prompt: videoPrompt,
-        num_frames: 361,
+        num_frames: Math.round((videoDuration * 24 - 1) / 8) * 8 + 1,
         frame_rate: 24,
       };
 
-      if (sourceImageUrl) {
-        videoBody.image = sourceImageUrl;
-        setVideoLogs(prev => [...prev, "🌐 Using reference image for video generation"]);
+      if (referenceImage) {
+        // If referenceImage is already a URL, use it directly
+        if (referenceImage.startsWith("http")) {
+          videoBody.image = referenceImage;
+          setVideoLogs(prev => [...prev, "✅ Using reference image URL directly"]);
+        } else {
+          // It's base64, compress then upload to get a public URL
+          setVideoLogs(prev => [...prev, "🌐 Compressing image..."]);
+          try {
+            const compressed = await compressImage(referenceImage, 1024, 0.85);
+            setVideoLogs(prev => [...prev, "📤 Uploading reference image..."]);
+            const uploadResp = await fetch("/api/upload-image", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ base64: compressed, name: "ref" }),
+            });
+            const uploadData = await uploadResp.json();
+            if (uploadData.url) {
+              videoBody.image = uploadData.url;
+              setVideoLogs(prev => [...prev, "✅ Image uploaded, using URL"]);
+            } else {
+              setVideoLogs(prev => [...prev, `⚠️ Upload failed: ${uploadData.error || JSON.stringify(uploadData)}`]);
+            }
+          } catch (err: any) {
+            setVideoLogs(prev => [...prev, `⚠️ Upload error: ${err.message}`]);
+          }
+        }
       }
 
       setVideoLogs(prev => [...prev, "🚀 Submitting task to Agnes AI..."]);
@@ -170,19 +219,35 @@ export default function AdVideoStep({
         throw new Error(errData.error || errData.message || `Video task creation failed: ${createResponse.status}`);
       }
 
-      const createData = await createResponse.json();
-      const taskId = createData.id || createData.task_id || createData.video_id;
+      // Delete pending task, replace with real one
+      deleteTask(tempId);
 
-      if (!taskId) {
-        throw new Error("No task ID in response");
+      const createData = await createResponse.json();
+      // CRITICAL: Use video_id for polling (NOT task_id!)
+      // Agnes API: POST /v1/videos returns both task_id and video_id
+      // Polling MUST use video_id with GET /agnesapi?video_id= or it queues forever
+      const videoId = createData.video_id || createData.id || createData.task_id;
+      const taskId = createData.task_id || videoId;
+
+      if (!videoId) {
+        throw new Error("No video_id in response");
       }
 
-      setVideoTaskId(taskId);
+      setVideoTaskId(videoId);
       setVideoStatus("polling");
-      setVideoLogs(prev => [...prev, `📡 Job ID: ${taskId}`, "⚙️ Bootstrapping video interpolation engine..."]);
+      setVideoLogs(prev => [...prev, `📡 Submitted, Video ID: ${videoId}`, "⚙️ Generating video..."]);
 
-      // Connect WebSocket for progress
-      connectWebSocket(taskId);
+      // Save real task (use video_id as the ID for polling)
+      saveTask({
+        id: videoId,
+        type: "video",
+        prompt: videoPrompt,
+        imageUrl: referenceImage || sourceImageUrl,
+        status: "queued",
+      });
+
+      // Connect WebSocket for progress (using video_id for polling)
+      connectWebSocket(videoId);
 
     } catch (err: any) {
       console.error("Failed to generate video:", err);
@@ -190,6 +255,7 @@ export default function AdVideoStep({
       setVideoLogs(prev => [...prev, `❌ Error: ${err.message}`, "⚠️ Render pipeline aborted."]);
       setVideoStatus("failed");
       setIsGenerating(false);
+      saveTask({ id: tempId, type: "video", status: "failed", error: err.message });
     }
   };
 
@@ -236,6 +302,44 @@ export default function AdVideoStep({
     }
   };
 
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setReferenceImage(event.target?.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const url = e.dataTransfer.getData("text/plain");
+    const file = e.dataTransfer.files?.[0];
+
+    if (file && file.type.startsWith("image/")) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setReferenceImage(event.target?.result as string);
+      };
+      reader.readAsDataURL(file);
+    } else if (url && (url.startsWith("http") || url.startsWith("data:image"))) {
+      setReferenceImage(url);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleClearImage = () => {
+    setReferenceImage(undefined);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
   const handleComplete = () => {
     onComplete({
       id: `ad_video_${Date.now()}`,
@@ -249,7 +353,7 @@ export default function AdVideoStep({
       videoUrl,
       videoTaskId,
       status: videoStatus,
-      duration: 15,
+      duration: videoDuration,
       createdAt: Date.now(),
     });
   };
@@ -268,7 +372,7 @@ export default function AdVideoStep({
                 <Film className="w-5 h-5 text-blue-400" />
                 AI Ad Video
               </h1>
-              <p className="text-xs text-slate-400 mt-1">AI optimizes prompts, generates 15s product ad video</p>
+              <p className="text-xs text-slate-400 mt-1">AI optimizes prompts, generates product ad video</p>
             </div>
           </div>
           {videoStatus === "completed" && (
@@ -287,24 +391,47 @@ export default function AdVideoStep({
           <div className="space-y-4">
             {/* Product Preview */}
             <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-4">
-              <span className="text-xs font-semibold text-slate-300 block mb-3">Product Preview</span>
-              <div className="flex gap-3">
-                {sourceImageUrl ? (
-                  <img
-                    src={sourceImageUrl}
-                    alt={product.name}
-                    className="w-20 h-20 object-contain bg-[#1f1f22] rounded-lg"
-                  />
+              <span className="text-xs font-semibold text-slate-300 block mb-3">Reference Image (optional)</span>
+              <div
+                onDrop={handleDrop}
+                onDragOver={handleDragOver}
+                className="relative"
+              >
+                {referenceImage ? (
+                  <div className="relative">
+                    <img
+                      src={referenceImage}
+                      alt="Reference"
+                      className="w-full h-32 object-contain bg-[#1f1f22] rounded-lg"
+                    />
+                    <button
+                      onClick={handleClearImage}
+                      className="absolute top-1 right-1 p-1 bg-red-500/80 hover:bg-red-500 rounded-full text-white"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
                 ) : (
-                  <div className="w-20 h-20 bg-[#1f1f22] rounded-lg flex items-center justify-center">
-                    <Film className="w-8 h-8 text-slate-600" />
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full h-32 border-2 border-dashed border-white/10 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-purple-500/30 hover:bg-purple-500/5 transition-colors"
+                  >
+                    <Upload className="w-6 h-6 text-slate-500 mb-2" />
+                    <p className="text-xs text-slate-400">Drag & drop image or click to upload</p>
+                    <p className="text-[10px] text-slate-500 mt-1">Used as reference for video generation</p>
                   </div>
                 )}
-                <div>
-                  <h3 className="text-sm font-semibold text-slate-200">{product.name}</h3>
-                  <p className="text-xs text-slate-400 line-clamp-2 mt-1">{adCopy}</p>
-                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageUpload}
+                  className="hidden"
+                />
               </div>
+              <p className="text-[10px] text-slate-500 mt-2">
+                {referenceImage ? "Image will be used as reference for video generation" : "Optional: Upload an image to guide video generation"}
+              </p>
             </div>
 
             {/* Character Settings */}
@@ -372,6 +499,27 @@ export default function AdVideoStep({
               />
             </div>
 
+            {/* Duration Selector */}
+            <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-4">
+              <label className="text-xs font-semibold text-slate-300 block mb-3">Video Duration</label>
+              <div className="flex gap-2">
+                {[5, 10, 15, 20, 25, 30].map((sec) => (
+                  <button
+                    key={sec}
+                    onClick={() => setVideoDuration(sec)}
+                    disabled={isGenerating}
+                    className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
+                      videoDuration === sec
+                        ? "bg-blue-600 text-white"
+                        : "bg-[#1f1f22] text-slate-400 hover:bg-white/5"
+                    } disabled:opacity-50`}
+                  >
+                    {sec}s
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Generate Video Button */}
             <button
               onClick={handleGenerateVideo}
@@ -386,7 +534,7 @@ export default function AdVideoStep({
               ) : (
                 <>
                   <Play className="w-4 h-4" />
-                  Generate 15s Video
+                  Generate {videoDuration}s Video
                 </>
               )}
             </button>
@@ -394,6 +542,14 @@ export default function AdVideoStep({
             {/* Progress & Logs */}
             {isGenerating && (
               <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-4">
+                {/* Submission spinner */}
+                {videoStatus === "generating" && (
+                  <div className="mb-4 flex items-center gap-2 text-yellow-400 text-sm">
+                    <div className="w-4 h-4 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
+                    <span>Submitting to Agnes API, please wait...</span>
+                  </div>
+                )}
+
                 {/* Progress Bar */}
                 {videoProgress > 0 && (
                   <div className="mb-4">

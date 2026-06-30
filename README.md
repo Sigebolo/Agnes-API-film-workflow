@@ -1,38 +1,56 @@
 <div align="center">
 
-# Agnes Film Studio 🎬
+# 🎬 Agnes Film Studio
 
-**AI-powered ad video production system**
+**AI-powered short video production studio**
 
-*Product info → AI generates logo + marketing images + ad video with character dialogue*
+*Generate product ads, short dramas, and marketing content with AI — no video editing skills required*
 
-[![License](https://img.shields.io/badge/license-Apache%202.0-orange.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org)
 [![React](https://img.shields.io/badge/react-19-61DAFB.svg)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue.svg)](https://www.typescriptlang.org)
+[![FFmpeg](https://img.shields.io/badge/FFmpeg-required-orange.svg)](https://ffmpeg.org)
+
+[![Watch Demo](https://img.shields.io/badge/📹-Watch_Demo-red)](#)
+[![Star](https://img.shields.io/github/stars/Sigebolo/Agnes-API-film-workflow?style=social)](https://github.com/Sigebolo/Agnes-API-film-workflow)
 
 </div>
 
 ---
 
-> **Agnes Film Studio** is a self-hosted web app for creating product ad videos. Enter product info → AI generates logo variants → marketing images → ad video with character dialogue. Uses [Agnes AI](https://platform.agnes-ai.com) API for text, image, and video generation.
+## What is this?
+
+Agnes Film Studio is a self-hosted web app that turns your product description into a complete ad video. Enter your product info → AI generates logo → marketing images → video with character dialogue. All powered by [Agnes AI](https://platform.agnes-ai.com) APIs.
+
+**No video editing. No design skills. Just describe your product.**
 
 ## ✨ Features
 
-- 🎯 **Ad Mode** — 4-step workflow: Product Info → Logo Design → Product Images → Ad Video
-- 🎨 **Logo Generator** — AI generates N style variants (3/5/6/9) from product description
-- 📸 **Product Image Generator** — Upload product image or describe it, AI creates E-commerce/Social/Poster variants
-- 🎬 **Ad Video** — AI optimizes video prompts, generates 5-30s video with character dialogue
-- ⏱️ **Adjustable Duration** — Choose video length from 5s to 30s (5s increments)
-- 👤 **Character Dialogue** — Add character name, description, and dialogue lines to ad videos
-- 🖱️ **Drag & Drop** — Drag generated images to prompt area for iterative refinement
-- 💾 **Auto-Save** — All generated images and videos automatically saved to output folder
-- 🔄 **State Persistence** — Switch pages without losing progress; logo variants, selected images, and generation status persist
-- 🎨 **Creative Mode** — Single-clip workflow: Prompt optimize → Image → Video → Timeline
+| Feature | Description |
+|---------|-------------|
+| 🎯 **Ad Studio** | End-to-end product ad: Product Info → Logo → Product Images → Video |
+| 🎨 **AI Logo** | Generate N style variants from product description |
+| 📸 **Product Images** | E-commerce, Social Media, Poster styles — all from one prompt |
+| 🎬 **Ad Video** | AI optimizes prompt, generates 5-30s video with character dialogue |
+| ⏱️ **Duration Control** | Choose video length: 5s / 10s / 15s / 20s / 25s / 30s |
+| 🖱️ **Drag & Drop** | Drag any generated image into prompt area for iteration |
+| 💾 **Auto-Save** | All images/videos saved to timestamped output folders |
+| 🔄 **State Persistence** | Switch pages without losing progress |
+| 📋 **Task Registry** | Query all tasks, track status, refresh, delete |
+| ✂️ **Video Trimming** | Trim unwanted segments with FFmpeg |
+| 🎞️ **Creative Mode** | Storyboard → Batch Images → Batch Videos → Timeline Merge |
+| 📝 **Script Injection** | 4-part ad structure: Opening → Showcase → Selling Points → Ending |
 
 ## 🚀 Quick Start
 
-**Prerequisites:** Node.js ≥ 18, [FFmpeg](https://ffmpeg.org/download.html) installed, Agnes AI API key
+### Prerequisites
+
+- **Node.js** ≥ 18
+- **FFmpeg** installed and in PATH
+- **Agnes AI** API key → [Get one here](https://platform.agnes-ai.com)
+
+### Install
 
 ```bash
 git clone https://github.com/Sigebolo/Agnes-API-film-workflow.git
@@ -42,135 +60,229 @@ npm run dev
 # → http://localhost:3000
 ```
 
-Or use the one-click startup script (Windows):
-```
-双击 启动Agnes.bat
-```
+### One-click Startup (Windows)
 
-Then enter your Agnes AI API key in the left sidebar. Get one at [platform.agnes-ai.com](https://platform.agnes-ai.com).
+双击 `启动Agnes.bat` — auto-builds if needed, cleans up old processes, opens browser.
 
 ## 🎬 Workflow
 
 ### Ad Mode (Recommended)
+
 ```
-Product Info
-    ↓
-AI Logo Generation  (agnes-image-2.1-flash, N variants)
-    ↓
-User Selects Logo
-    ↓
-AI Product Images  (E-commerce / Social / Poster variants)
-    ↓
-AI Ad Video  (agnes-video-v2.0, 5-30s with character dialogue)
-    ↓
-Export + Auto-Save to Output Folder
+┌─────────────────┐
+│  Product Info    │  Name, description, features, target audience
+└────────┬────────┘
+         ▼
+┌─────────────────┐
+│  AI Logo         │  Generate N style variants (3/5/6/9)
+└────────┬────────┘
+         ▼
+┌─────────────────┐
+│  AI Images       │  E-commerce / Social / Poster variants
+└────────┬────────┘
+         ▼
+┌─────────────────┐
+│  AI Video        │  5-30s with character dialogue
+└────────┬────────┘
+         ▼
+┌─────────────────┐
+│  Auto-Save       │  outputs/YYYY-MM-DD_HH-MM-SS_topic/
+└─────────────────┘
 ```
 
-### Creative Mode
+### Creative Mode (Short Drama / Batch)
+
 ```
 Story Outline
     ↓
-AI Script + Shot List  (agnes-2.0-flash)
+AI Script + Shot List (agnes-2.0-flash)
     ↓
-Batch Image Generation  (agnes-image-2.1-flash)
+Batch Image Generation (per shot)
     ↓
-User Approval Gate
+User Approval Gate (regenerate before video)
     ↓
-Batch Video Generation  (agnes-video-v2.0, 5-30s per shot)
+Batch Video Generation (5-30s per shot)
     ↓
-Timeline Merge + TTS Voiceover  (FFmpeg)
+Timeline Merge + TTS Voiceover (FFmpeg)
     ↓
 Export Final Video
 ```
 
 ## 🏗 Architecture
 
-| Layer | Stack |
-|-------|-------|
-| **Frontend** | React 19 + TypeScript + Tailwind CSS + Framer Motion |
-| **Backend** | Express + WebSocket server (TypeScript, tsx) |
-| **AI** | Agnes AI API — text, image, video generation |
-| **Image Upload** | freeimage.host (for public URLs required by Agnes API) |
-| **Video** | FFmpeg (merge + voiceover dub + trim) |
-| **Build** | Vite (frontend) + esbuild (server) |
+```
+┌─────────────────────────────────────────────────┐
+│                   Frontend                       │
+│  React 19 + TypeScript + Tailwind + Framer       │
+│  ┌──────────┐ ┌──────────┐ ┌──────────────────┐ │
+│  │ Ad Studio│ │ Creative │ │ Task History     │ │
+│  │ 4-step   │ │ Storyboard│ │ (Query/Refresh) │ │
+│  └──────────┘ └──────────┘ └──────────────────┘ │
+└──────────────────┬──────────────────────────────┘
+                   │ REST + WebSocket
+┌──────────────────▼──────────────────────────────┐
+│                  Backend                         │
+│  Express + WebSocket (TypeScript)                │
+│  ┌──────────┐ ┌──────────┐ ┌──────────────────┐ │
+│  │ Agnes    │ │ Output   │ │ FFmpeg           │ │
+│  │ API Proxy│ │ Folder   │ │ (Trim/Merge)     │ │
+│  └──────────┘ └──────────┘ └──────────────────┘ │
+└──────────────────┬──────────────────────────────┘
+                   │
+┌──────────────────▼──────────────────────────────┐
+│               Agnes AI API                       │
+│  Text / Image / Video Generation                 │
+└─────────────────────────────────────────────────┘
+```
 
 ## 📁 Project Structure
 
 ```
 agnes-film-studio/
-├── server.ts              # Express + WebSocket server, Agnes AI proxy
-├── 启动Agnes.bat          # One-click startup script (Windows)
-├── references/            # Ad creative guides (prompt templates, script formats)
-├── outputs/               # Auto-saved generated images and videos
+├── server.ts                  # Express + WebSocket + Agnes AI proxy
+├── 启动Agnes.bat              # One-click startup (Windows)
+├── agnes_video.py             # Standalone Python video generator
+├── references/                # Prompt templates & script formats
+│   ├── video-prompt-guide.md  # Video prompt constraints
+│   └── script-template.md     # 4-part ad script structure
+├── outputs/                   # Auto-saved generated assets
 ├── src/
-│   ├── App.tsx            # Root — Ad Mode (4-step) + Creative Mode
+│   ├── App.tsx               # Root — Ad Mode + Creative Mode
 │   ├── components/
-│   │   ├── ProductInputStep.tsx     # Product info input form
-│   │   ├── LogoGenerateStep.tsx     # Logo generation with N variants
-│   │   ├── ProductImageStep.tsx     # Product image generation
-│   │   ├── AdVideoStep.tsx          # AI ad video generation (5-30s)
-│   │   ├── DragDropZone.tsx         # Reusable drag-and-drop component
-│   │   ├── ImageVariantGrid.tsx     # Variant image grid display
-│   │   ├── ImageGenerateStep.tsx    # Single-clip image generation
-│   │   ├── VideoGenerateStep.tsx    # Single-clip video generation
-│   │   ├── PromptOptimizeStep.tsx   # Prompt optimization
-│   │   ├── Sidebar.tsx              # Task history + workflow progress
-│   │   └── Timeline.tsx            # Multi-clip timeline merge
-│   ├── types.ts           # TypeScript interfaces
+│   │   ├── ProductInputStep.tsx      # Product info form
+│   │   ├── LogoGenerateStep.tsx      # Logo gen with N variants
+│   │   ├── ProductImageStep.tsx      # Product image gen
+│   │   ├── AdVideoStep.tsx           # Ad video gen (5-30s)
+│   │   ├── ImageGenerateStep.tsx     # Single-clip image gen
+│   │   ├── VideoGenerateStep.tsx     # Single-clip video gen
+│   │   ├── PromptOptimizeStep.tsx    # Prompt optimization
+│   │   ├── Sidebar.tsx              # Task history + progress
+│   │   ├── Timeline.tsx             # Timeline merge + export
+│   │   ├── DragDropZone.tsx         # Drag-and-drop component
+│   │   └── ImageVariantGrid.tsx     # Variant grid display
+│   ├── types.ts              # TypeScript interfaces
 │   └── utils/
-│       ├── api.ts         # Agnes API client + auto-save helpers
-│       ├── storage.ts     # LocalStorage persistence (workflow + ad state)
-│       ├── imageCompress.ts  # Client-side image compression
-│       └── rateLimiter.ts # Token bucket rate limiter
-└── tests/                 # Vitest unit tests (54 tests)
+│       ├── api.ts            # API client + auto-save helpers
+│       ├── storage.ts        # LocalStorage persistence
+│       ├── imageCompress.ts  # Client-side compression
+│       └── rateLimiter.ts    # Token bucket rate limiter
+└── tests/                    # Vitest unit tests (54 tests)
 ```
 
 ## ⚙️ Configuration
 
-No `.env` file needed. The Agnes API key is entered in the UI and stored in browser `localStorage`.
+No `.env` file needed. API key is entered in the UI and stored in browser `localStorage`.
 
-For production deployment, set the `NODE_ENV=production` and run:
+### Environment Variables (Optional)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | 3000 | Server port |
+| `NODE_ENV` | development | Set to `production` for deployment |
+
+### Production Deployment
 
 ```bash
 npm run build
 npm start
+# → http://localhost:3000
 ```
 
-## 📤 Output Folder
+## 📤 Output Structure
 
-All generated assets are automatically saved to timestamped folders:
+All generated assets auto-saved to timestamped folders:
 
 ```
 outputs/
 ├── 2026-06-29_19-20-39_AI_Accounting_Software/
-│   ├── logo_1.jpg
+│   ├── logo_1.jpg              # Logo variants
 │   ├── logo_2.jpg
 │   ├── logo_3.jpg
-│   ├── ecommerce_1.jpg
+│   ├── ecommerce_1.jpg         # Product images
 │   ├── social_1.jpg
 │   ├── poster_1.jpg
-│   ├── video_1782710439000.mp4
-│   └── metadata.json
+│   ├── video_xxx.mp4           # Generated video
+│   ├── reference.jpg           # Reference image (if used)
+│   └── metadata.json           # Generation parameters
 ```
 
-## ⚠️ Known Limitations
+## 🐍 Standalone Python Generator
 
-- Video duration is configurable from **5-30 seconds** (5s increments)
-- Logo and image generation uses **3 variants by default** (configurable up to 9)
-- TTS voiceover uses Google Translate's unofficial endpoint — may be rate-limited or unavailable
-- Video merging requires **FFmpeg** installed on the server host
-- Character consistency across shots is approximate — AI models don't guarantee pixel-perfect identity
-- Image upload uses freeimage.host (free tier, may have rate limits)
+For agent workflows or batch processing:
+
+```python
+from agnes_video import generate_video
+
+result = generate_video(
+    image_url="https://example.com/product.jpg",
+    prompt="A confident woman presenting the product...",
+    duration=15,
+    api_key="sk-xxx"
+)
+# result = {"video_id": "...", "status": "completed", "video_url": "..."}
+```
+
+Or CLI:
+
+```bash
+python agnes_video.py \
+  --image https://example.com/product.jpg \
+  --prompt "A confident woman presenting the product..." \
+  --duration 15 \
+  --api-key "sk-xxx" \
+  --output video.mp4
+```
+
+## 🧪 Testing
+
+```bash
+npm test          # Run all 54 unit tests
+```
+
+Tests cover: API client, task registry, output folder management, rate limiter, compression, and more.
 
 ## 🤝 Contributing
 
-Contributions welcome! Please open an issue first to discuss major changes.
+Contributions welcome! Please:
 
 1. Fork the repo
 2. Create a feature branch: `git checkout -b feat/my-feature`
 3. Commit: `git commit -m "feat: add my feature"`
 4. Push and open a Pull Request
 
+### Development Setup
+
+```bash
+npm install
+npm run dev        # Start dev server with hot reload
+npm test           # Run tests
+npm run build      # Build for production
+```
+
+## 📝 Changelog
+
+### v1.0.0 (2026-06-29)
+- Ad Studio workflow (Product → Logo → Images → Video)
+- Creative Mode with storyboard
+- Video duration selector (5-30s)
+- Task registry with Query All
+- Auto-save to timestamped folders
+- Video trimming with FFmpeg
+- State persistence across navigation
+- Standalone Python video generator
+- Image compression before upload
+- Drag-and-drop image reference
+
 ## 📄 License
 
-[Apache 2.0](LICENSE) — see LICENSE for full text.
+[MIT](LICENSE)
+
+---
+
+<div align="center">
+
+**Built with ❤️ using [Agnes AI](https://platform.agnes-ai.com)**
+
+*Give it a ⭐ if you find it useful!*
+
+</div>

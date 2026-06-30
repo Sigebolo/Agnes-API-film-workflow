@@ -230,7 +230,7 @@ def submit_task(api_key: str, prompt: str, image_url: str = None,
         body["image"] = image_url
 
     # Retry on rate limit or timeout
-    for attempt in range(3):
+    for attempt in range(5):
         progress = ProgressIndicator("Submitting")
         progress.start()
         try:
@@ -239,14 +239,15 @@ def submit_task(api_key: str, prompt: str, image_url: str = None,
             progress.stop()
 
         if data.get("error") == "rate_limited":
-            wait = 60 * (attempt + 1)
+            wait = 60 * (attempt + 1)  # 60s, 120s, 180s...
             print(f"  [Rate limited, waiting {wait}s...]")
             time.sleep(wait)
             continue
 
         if data.get("error") in ("timeout", "connection_error", "service_unavailable"):
-            print(f"  [Network error, retrying...]")
-            time.sleep(10)
+            wait = 15 * (attempt + 1)
+            print(f"  [Network error, waiting {wait}s before retry...]")
+            time.sleep(wait)
             continue
 
         if "error" in data:
@@ -264,7 +265,7 @@ def submit_task(api_key: str, prompt: str, image_url: str = None,
             "label": label,
         }
 
-    return {"success": False, "error": "Failed after 3 attempts"}
+    return {"success": False, "error": "Failed after 5 attempts (API rate limit or network issues)"}
 
 
 def poll_task(api_key: str, video_id: str, timeout: int = 600) -> dict:

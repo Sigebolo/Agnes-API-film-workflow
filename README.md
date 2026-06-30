@@ -87,6 +87,50 @@ Windows 用户双击 `启动Agnes.bat` 一键启动。
 - **后端**: Express + WebSocket
 - **AI**: Agnes AI（文本/图像/视频生成）
 - **视频处理**: FFmpeg
+- **CLI**: MFilm-CLI（命令行工具）
+
+## 🎬 MFilm-CLI 命令行工具
+
+工业级影视资产管理系统。无需浏览器，命令行直接生成视频。
+
+### 安装
+
+```bash
+pip install requests
+```
+
+### 使用
+
+```bash
+# 配置 API key
+python mfilm.py config --api-key "sk-xxx"
+
+# 创建视频（等待完成）
+python mfilm.py create --prompt "产品展示" --duration 15 --label "Ad_01" --output-dir "./videos"
+
+# 创建视频（异步）
+python mfilm.py create --prompt "人物动画" --anchor-image "https://..." --async
+
+# 查看状态
+python mfilm.py status --all
+python mfilm.py status --id <TaskID>
+
+# 同步下载
+python mfilm.py sync --output-dir "D:/Cinematic_Vault"
+
+# 批量任务
+python mfilm.py batch --file tasks.json
+```
+
+### 功能
+
+| 命令 | 功能 |
+|------|------|
+| `create` | Prompt 自动增强（光影、镜头、8K材质），帧数 8n+1 对齐 |
+| `status` | 单任务/批量状态查询 |
+| `sync` | 自动检测完成任务并下载 |
+| `config` | 管理 API key、输出目录 |
+| `batch` | JSON 批量任务 |
 
 ## 输出示例
 
@@ -212,6 +256,49 @@ Perfect for:
 - Social media ads
 - Short video content
 - Personal branding
+
+## MFilm-CLI (Command Line Tool)
+
+Industrial-grade film asset management. Generate videos from terminal.
+
+### Install
+
+```bash
+pip install requests
+```
+
+### Usage
+
+```bash
+# Configure API key
+python mfilm.py config --api-key "sk-xxx"
+
+# Create video (wait for completion)
+python mfilm.py create --prompt "Product showcase" --duration 15 --label "Ad_01" --output-dir "./videos"
+
+# Create video (async)
+python mfilm.py create --prompt "Character animation" --anchor-image "https://..." --async
+
+# Check status
+python mfilm.py status --all
+python mfilm.py status --id <TaskID>
+
+# Sync downloads
+python mfilm.py sync --output-dir "D:/Cinematic_Vault"
+
+# Batch tasks
+python mfilm.py batch --file tasks.json
+```
+
+### Features
+
+| Command | Function |
+|---------|----------|
+| `create` | Auto-enhance prompt (lighting, camera, 8K), frame alignment (8n+1) |
+| `status` | Single/batch task monitoring |
+| `sync` | Auto-detect completed tasks and download |
+| `config` | Manage API key, output directory |
+| `batch` | JSON batch task creation |
 
 ## Agent Automation
 

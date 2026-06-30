@@ -15,6 +15,7 @@ import json
 import os
 import sys
 import time
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -120,7 +121,6 @@ STYLE_ENHANCERS = [
 
 def enhance_prompt(user_prompt: str, style: str = "cinematic") -> str:
     """Enhance user prompt with industrial film aesthetics."""
-    # Check if prompt already has camera/style keywords
     has_camera = any(word in user_prompt.lower() for word in [
         "pan", "push", "rotate", "orbit", "static", "crane", "dolly"
     ])
@@ -140,17 +140,50 @@ def enhance_prompt(user_prompt: str, style: str = "cinematic") -> str:
         style_elem = random.choice(STYLE_ENHANCERS)
         enhanced += f". {style_elem}"
 
-    # Add resolution and quality tags
     enhanced += ". 8K resolution, ultra high detail, professional cinematography"
 
     return enhanced
 
 
 # ============================================
+# Progress Indicator
+# ============================================
+
+class ProgressIndicator:
+    """Shows a spinning progress indicator during long operations."""
+    
+    def __init__(self, message="Working"):
+        self.message = message
+        self.running = False
+        self.thread = None
+    
+    def start(self):
+        self.running = True
+        self.thread = threading.Thread(target=self._animate, daemon=True)
+        self.thread.start()
+    
+    def _animate(self):
+        chars = ["|", "/", "-", "\\"]
+        i = 0
+        while self.running:
+            sys.stdout.write(f"\r  {self.message} {chars[i % len(chars)]} ")
+            sys.stdout.flush()
+            time.sleep(0.1)
+            i += 1
+    
+    def stop(self):
+        self.running = False
+        if self.thread:
+            self.thread.join(timeout=0.2)
+        sys.stdout.write("\r" + " " * 60 + "\r")
+        sys.stdout.flush()
+
+
+# ============================================
 # API Client
 # ============================================
 
-def api_request(method, url, api_key, json_data=None, timeout=30):
+def api_request(method, url, api_key, json_data=None, timeout=300):
     """Make API request with error handling."""
     import requests
 
@@ -167,6 +200,9 @@ def api_request(method, url, api_key, json_data=None, timeout=30):
 
         if resp.status_code == 429:
             return {"error": "rate_limited", "retry_after": 60}
+
+        if resp.status_code == 503:
+            return {"error": "service_unavailable"}
 
         resp.raise_for_status()
         return resp.json()
@@ -195,7 +231,12 @@ def submit_task(api_key: str, prompt: str, image_url: str = None,
 
     # Retry on rate limit or timeout
     for attempt in range(3):
-        data = api_request("POST", SUBMIT_URL, api_key, body, timeout=60)
+        progress = ProgressIndicator("Submitting")
+        progress.start()
+        try:
+            data = api_request("POST", SUBMIT_URL, api_key, body, timeout=300)
+        finally:
+            progress.stop()
 
         if data.get("error") == "rate_limited":
             wait = 60 * (attempt + 1)
@@ -203,9 +244,9 @@ def submit_task(api_key: str, prompt: str, image_url: str = None,
             time.sleep(wait)
             continue
 
-        if data.get("error") in ("timeout", "connection_error"):
+        if data.get("error") in ("timeout", "connection_error", "service_unavailable"):
             print(f"  [Network error, retrying...]")
-            time.sleep(5)
+            time.sleep(10)
             continue
 
         if "error" in data:
@@ -226,17 +267,15 @@ def submit_task(api_key: str, prompt: str, image_url: str = None,
     return {"success": False, "error": "Failed after 3 attempts"}
 
 
-def poll_task(api_key: str, video_id: str, timeout: int = 900) -> dict:
+def poll_task(api_key: str, video_id: str, timeout: int = 600) -> dict:
     """Poll task status until completion."""
-    import requests
-
     start = time.time()
     last_status = ""
 
     while time.time() - start < timeout:
-        data = api_request("GET", f"{POLL_URL}{video_id}", api_key)
+        data = api_request("GET", f"{POLL_URL}{video_id}", api_key, timeout=30)
 
-        if "error" in data and data["error"] not in ("timeout", "connection_error"):
+        if data.get("error") and data["error"] not in ("timeout", "connection_error"):
             return {"success": False, "error": data["error"]}
 
         status = data.get("status", "unknown").lower()
@@ -249,6 +288,7 @@ def poll_task(api_key: str, video_id: str, timeout: int = 900) -> dict:
                 "queued": "[Queued]",
                 "processing": "[Rendering]",
                 "running": "[Rendering]",
+                "in_progress": "[Rendering]",
                 "completed": "[Done]",
                 "success": "[Done]",
                 "failed": "[Failed]",
@@ -270,7 +310,7 @@ def poll_task(api_key: str, video_id: str, timeout: int = 900) -> dict:
 
     # Timeout — final check
     print(f"  [Timeout, checking final status...]")
-    data = api_request("GET", f"{POLL_URL}{video_id}", api_key)
+    data = api_request("GET", f"{POLL_URL}{video_id}", api_key, timeout=30)
 
     if data.get("status", "").lower() in ("completed", "success"):
         url = data.get("video_url") or data.get("remixed_from_video_id")
@@ -285,12 +325,17 @@ def download_video(url: str, output_path: str) -> bool:
     import requests
 
     try:
-        resp = requests.get(url, timeout=120, stream=True)
-        resp.raise_for_status()
+        progress = ProgressIndicator("Downloading")
+        progress.start()
+        try:
+            resp = requests.get(url, timeout=120, stream=True)
+            resp.raise_for_status()
 
-        with open(output_path, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=8192):
-                f.write(chunk)
+            with open(output_path, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=8192):
+                    f.write(chunk)
+        finally:
+            progress.stop()
 
         size_mb = os.path.getsize(output_path) / (1024 * 1024)
         print(f"  [Saved {size_mb:.1f}MB -> {output_path}]")
@@ -320,10 +365,10 @@ def cmd_create(args):
 
     enhanced = enhance_prompt(args.prompt)
     if enhanced != args.prompt:
-        print(f"  [Prompt enhanced with cinematic aesthetics]")
+        print(f"  [Prompt enhanced]")
 
     # Submit
-    print(f"  [Submitting to Agnes AI...]")
+    print(f"  [Submitting...]")
     result = submit_task(
         api_key=api_key,
         prompt=enhanced,
@@ -337,7 +382,7 @@ def cmd_create(args):
         sys.exit(1)
 
     video_id = result["video_id"]
-    print(f"  [Task submitted: {video_id}]")
+    print(f"  [Task ID: {video_id}]")
 
     # Save task
     task_data = {
@@ -363,16 +408,12 @@ def cmd_create(args):
     }
     save_state(state)
 
-    print(f"\n  [Task ID: {video_id}]")
-    print(f"  [Check status: mfilm status --id {video_id}]")
-
     # Poll if not async
     if not args.async_mode:
-        print(f"\n  [Waiting for completion...]")
-        poll_result = poll_task(api_key, video_id)
+        print(f"  [Waiting for completion...]")
+        poll_result = poll_task(api_key, video_id, timeout=600)
 
         if poll_result["success"]:
-            # Update task
             task_data["status"] = "completed"
             task_data["video_url"] = poll_result["video_url"]
             task_data["completed_at"] = datetime.now().isoformat()
@@ -389,16 +430,16 @@ def cmd_create(args):
                 if download_video(poll_result["video_url"], filepath):
                     task_data["local_path"] = filepath
                     save_task(video_id, task_data)
-                    print(f"\n  [Done! Video saved to {filepath}]")
+                    print(f"  [Done! -> {filepath}]")
                 else:
-                    print(f"\n  [Done! Video URL: {poll_result['video_url']}]")
+                    print(f"  [Done! URL: {poll_result['video_url']}]")
             else:
-                print(f"\n  [Done! Video URL: {poll_result['video_url']}]")
+                print(f"  [Done! URL: {poll_result['video_url']}]")
         else:
             task_data["status"] = "failed"
             task_data["error"] = poll_result["error"]
             save_task(video_id, task_data)
-            print(f"\n  [Failed: {poll_result['error']}]")
+            print(f"  [Failed: {poll_result['error']}]")
             sys.exit(1)
 
 
@@ -430,7 +471,7 @@ def cmd_status(args):
         # Live check if API key available
         if api_key and task["status"] not in ("completed", "failed"):
             print(f"\n  [Checking live status...]")
-            data = api_request("GET", f"{POLL_URL}{args.id}", api_key)
+            data = api_request("GET", f"{POLL_URL}{args.id}", api_key, timeout=30)
             status = data.get("status", "unknown")
             progress = data.get("progress", 0)
             print(f"  Live: {status} {progress}%")
@@ -482,7 +523,7 @@ def cmd_sync(args):
             continue
 
         # Check live status
-        data = api_request("GET", f"{POLL_URL}{tid}", api_key)
+        data = api_request("GET", f"{POLL_URL}{tid}", api_key, timeout=30)
         status = data.get("status", "").lower()
 
         if status in ("completed", "success"):

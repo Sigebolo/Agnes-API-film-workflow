@@ -8,7 +8,6 @@ import { Film, ArrowLeft, Sparkles, RefreshCw, Play, CheckCircle, AlertTriangle,
 import { Product, AdVideoResult, TaskStatus } from "../types";
 import { generateAdVideoApi, subscribeVideoProgress, saveTask, deleteTask, autoSaveVideo } from "../utils/api";
 import { compressImage } from "../utils/imageCompress";
-import { compressImage } from "../utils/imageCompress";
 
 interface AdVideoStepProps {
   apiKey: string;

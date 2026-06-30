@@ -4,6 +4,8 @@
 
 **免费生成 Logo、文案、视频广告 — 专为个人和小企业设计**
 
+[English](#english) | 中文
+
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org)
 
@@ -98,6 +100,47 @@ outputs/
     ├── social_1.jpg
     ├── video_xxx.mp4
     └── metadata.json
+```
+
+## 🤖 Agent 自动化
+
+你可以让 AI Agent（Claude Code、OpenCode 等）自动帮你生成视频。
+
+### 安装 Skill
+
+```bash
+# 复制 skill 到你的 agent 配置目录
+cp -r skills/agnes-video-generation ~/.config/opencode/skills/
+# 或 Claude Code
+cp -r skills/agnes-video-generation ~/.claude/skills/
+```
+
+### Agent 自动调用
+
+安装后，Agent 会自动识别任务并调用 skill：
+
+```
+你：帮我生成一个护肤产品的广告视频
+Agent：（自动调用 agnes-video-generation skill）
+    1. 生成产品文案
+    2. 生成营销图片
+    3. 上传图片获取 URL
+    4. 调用 Agnes API 生成视频
+    5. 返回视频文件
+```
+
+### Python 直接调用
+
+```python
+from agnes_video import generate_video
+
+result = generate_video(
+    image_url="https://example.com/product.jpg",
+    prompt="一位专业女性介绍这款护肤品的功效...",
+    duration=15,
+    api_key="sk-xxx"
+)
+print(result["video_url"])
 ```
 
 ## 开源协议

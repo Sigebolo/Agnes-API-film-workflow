@@ -1,0 +1,18 @@
+[
+  {
+    "prompt": "A sleek smartphone rotates on white pedestal with soft studio lighting",
+    "duration": 15,
+    "label": "Phone_Showcase"
+  },
+  {
+    "prompt": "Professional woman presenting skincare product in modern office",
+    "duration": 10,
+    "image_url": "https://example.com/character.jpg",
+    "label": "Skincare_Ad"
+  },
+  {
+    "prompt": "Close-up of coffee cup with steam rising, morning light through window",
+    "duration": 5,
+    "label": "Coffee_Mood"
+  }
+]

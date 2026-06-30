@@ -253,6 +253,30 @@ result = generate_video(
 print(result["video_url"])
 ```
 
+### Auto-Download with Cron Job
+
+Set up a cron job to automatically check and download new videos every 5 minutes:
+
+```bash
+# Linux/Mac - edit crontab
+crontab -e
+
+# Add this line (every 5 minutes)
+*/5 * * * * cd /path/to/Agnes-API-film-workflow && python monitor_videos.py --api-key "sk-xxx" --output-dir "downloads" --quiet
+```
+
+```powershell
+# Windows - Task Scheduler
+# Create a scheduled task running every 5 minutes:
+schtasks /create /tn "AgnesVideoMonitor" /tr "python D:\path\to\monitor_videos.py --api-key sk-xxx --output-dir D:\downloads --quiet" /sc minute /mo 5
+```
+
+The monitor script:
+- Checks task registry for new completed videos
+- Downloads to your specified folder
+- Tracks state to avoid re-downloading
+- Silent mode (--quiet) - no output if no new videos
+
 ## Tech Stack
 
 - **Frontend**: React + TypeScript + Tailwind CSS

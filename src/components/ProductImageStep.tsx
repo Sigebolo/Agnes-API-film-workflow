@@ -26,20 +26,71 @@ const SCENE_LABELS: Record<MarketingScene, string> = {
 };
 
 export default function ProductImageStep({ apiKey, product, logoImageUrl, onBack, onNext }: ProductImageStepProps) {
-  const [inputMode, setInputMode] = useState<"upload" | "text">("upload");
+  const [inputMode, setInputMode] = useState<"upload" | "text" | "prompt">("upload");
   const [sourceImage, setSourceImage] = useState<string | undefined>(logoImageUrl);
   const [textDesc, setTextDesc] = useState(product.description || "");
+  const [manualPrompt, setManualPrompt] = useState("");
   const [variants, setVariants] = useState<MarketingVariant[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [selectedId, setSelectedId] = useState<string | undefined>();
 
-  const canGenerate = inputMode === "upload" ? !!sourceImage : textDesc.trim().length > 0;
+  const canGenerate = inputMode === "prompt"
+    ? manualPrompt.trim().length > 0
+    : inputMode === "upload" ? !!sourceImage : textDesc.trim().length > 0;
 
   const handleGenerate = async () => {
     if (!canGenerate) return;
 
     console.log("[ProductImageStep] Starting generation...", { inputMode, textDesc, sourceImage });
     setIsGenerating(true);
+
+    // Manual prompt mode: generate single image directly
+    if (inputMode === "prompt") {
+      try {
+        const body: Record<string, any> = {
+          model: "agnes-image-2.1-flash",
+          prompt: manualPrompt,
+          n: 1,
+          size: "1024x1024",
+        };
+        if (sourceImage) {
+          body.image = sourceImage;
+        }
+
+        const response = await fetch("/api/proxy/images", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify(body),
+        });
+
+        if (!response.ok) throw new Error(`Image generation failed: ${response.status}`);
+
+        const data = await response.json();
+        const imageUrl = data.data?.[0]?.url;
+
+        if (imageUrl) {
+          const newVariant: MarketingVariant = {
+            id: `img_${Date.now()}_0`,
+            prompt: manualPrompt,
+            imageUrl,
+            status: "completed",
+            scene: "ecommerce" as MarketingScene,
+          };
+          setVariants([newVariant]);
+          autoSaveImage(imageUrl, "manual_prompt");
+        }
+      } catch (err: any) {
+        console.error("Failed to generate image:", err);
+      } finally {
+        setIsGenerating(false);
+      }
+      return;
+    }
+
+    // AI auto-generate mode: get 3 prompts then generate 3 images
     try {
       const result = await generateProductImageApi(
         apiKey,
@@ -221,7 +272,7 @@ export default function ProductImageStep({ apiKey, product, logoImageUrl, onBack
                   }`}
                 >
                   <Upload className="w-3.5 h-3.5" />
-                  Upload Image
+                  Upload
                 </button>
                 <button
                   onClick={() => setInputMode("text")}
@@ -232,7 +283,18 @@ export default function ProductImageStep({ apiKey, product, logoImageUrl, onBack
                   }`}
                 >
                   <Type className="w-3.5 h-3.5" />
-                  Text Description
+                  AI Generate
+                </button>
+                <button
+                  onClick={() => setInputMode("prompt")}
+                  className={`flex-1 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                    inputMode === "prompt"
+                      ? "bg-purple-600/20 text-purple-300 border border-purple-500/30"
+                      : "bg-[#1f1f22] text-slate-400 border border-white/5 hover:bg-white/5"
+                  }`}
+                >
+                  <ImageIcon className="w-3.5 h-3.5" />
+                  Manual Prompt
                 </button>
               </div>
             </div>
@@ -263,23 +325,53 @@ export default function ProductImageStep({ apiKey, product, logoImageUrl, onBack
               </div>
             )}
 
+            {/* Manual Prompt Mode */}
+            {inputMode === "prompt" && (
+              <>
+                <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-4">
+                  <span className="text-xs font-semibold text-slate-300 block mb-3">Reference Image (optional)</span>
+                  <DragDropZone
+                    onImageDrop={setSourceImage}
+                    currentImage={sourceImage}
+                    onClear={() => setSourceImage(undefined)}
+                  />
+                </div>
+                <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-4">
+                  <span className="text-xs font-semibold text-slate-300 block mb-3">Your Prompt</span>
+                  <textarea
+                    value={manualPrompt}
+                    onChange={(e) => setManualPrompt(e.target.value)}
+                    rows={4}
+                    placeholder="e.g. A woman wearing this dress walking on a beach at sunset, cinematic lighting, 4K..."
+                    className="w-full px-3 py-2 bg-[#1f1f22] border border-white/10 rounded-xl text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-purple-500/50 resize-none"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1">With reference image: AI uses it as base, your prompt guides the transformation. Without: pure text-to-image.</p>
+                </div>
+              </>
+            )}
+
             {/* Generate Button */}
             <button
               onClick={handleGenerate}
               disabled={!canGenerate || isGenerating}
               className="w-full py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:brightness-110 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all"
             >
-              {isGenerating ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <ImageIcon className="w-4 h-4" />
-                  Generate Marketing Images
-                </>
-              )}
+                  {isGenerating ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      Generating...
+                    </>
+                  ) : inputMode === "prompt" ? (
+                    <>
+                      <ImageIcon className="w-4 h-4" />
+                      Generate Image
+                    </>
+                  ) : (
+                    <>
+                      <ImageIcon className="w-4 h-4" />
+                      Generate Marketing Images
+                    </>
+                  )}
             </button>
           </div>
 
@@ -340,8 +432,8 @@ export default function ProductImageStep({ apiKey, product, logoImageUrl, onBack
             ) : (
               <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-12 text-center">
                 <ImageIcon className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-                <p className="text-sm text-slate-400">Upload product image or enter description, click "Generate Marketing Images"</p>
-                <p className="text-xs text-slate-500 mt-1">AI will generate E-commerce, Social Media, and Brand Poster variants</p>
+                <p className="text-sm text-slate-400">Upload image, describe product, or enter manual prompt to generate images</p>
+                <p className="text-xs text-slate-500 mt-1">AI generates E-commerce, Social Media, and Brand Poster variants</p>
               </div>
             )}
           </div>

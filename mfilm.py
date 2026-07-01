@@ -586,6 +586,29 @@ def cmd_chain(args):
         }
         save_task(video_id, task_data)
 
+        # Verify task exists on Agnes server (ghost task detection)
+        resolved_id = resolve_video_id(video_id)
+        verify_url = f"{AGNES_API_BASE}/v1/video/generations/{resolved_id}"
+        ghost_detected = False
+        for check in range(3):
+            time.sleep(1)
+            check_data = api_request("GET", verify_url, api_key, timeout=10)
+            if "task_not_exist" in str(check_data.get("error", "")):
+                ghost_detected = True
+                break
+            status = check_data.get("status", "").lower()
+            if status in ("queued", "not_start", "processing", "running", "completed", "success"):
+                break
+            if not check_data.get("error"):
+                break
+
+        if ghost_detected:
+            print(f"  [!] GHOST TASK at scene {i+1}: {video_id} not on server. Skipping.")
+            task_data["status"] = "failed"
+            task_data["error"] = "Ghost task - not found on Agnes server"
+            save_task(video_id, task_data)
+            break
+
         # Poll
         print(f"  [Waiting for completion...]")
         poll_result = poll_task(api_key, video_id, timeout=600)
@@ -698,22 +721,34 @@ def cmd_create(args):
     video_id = result["video_id"]
     print(f"  [Task ID: {video_id}]")
 
-    # R1: 强校验 — 提交后立即确认任务已挂载
+    # R1: Verify task exists on Agnes server immediately after submit
     resolved_id = resolve_video_id(video_id)
     verified = False
+    verify_url = f"{AGNES_API_BASE}/v1/video/generations/{resolved_id}"
     for check in range(5):
         time.sleep(1)
-        check_data = api_request("GET", f"{POLL_URL}{resolved_id}", api_key, timeout=10)
+        check_data = api_request("GET", verify_url, api_key, timeout=10)
+        status = check_data.get("status", "").lower()
+        error = check_data.get("error", "")
+        # task_not_exist or timeout means ghost task
+        if "task_not_exist" in str(error):
+            break
+        if status in ("queued", "not_start", "processing", "running", "completed", "success"):
+            verified = True
+            break
         if not check_data.get("error"):
             verified = True
             break
-        if "not_found" not in str(check_data.get("error", "")):
-            verified = True
-            break
+
     if verified:
         print(f"  [OK] Task confirmed in cloud queue")
     else:
-        print(f"  [!] Warning: Task {video_id} not confirmed after submit, may have been dropped by cloud")
+        print(f"  [!] GHOST TASK: {video_id} not found on Agnes server. Marking as failed.")
+        print(f"      This task was submitted but never created. Possible causes:")
+        print(f"      - Rate limit (1 req/min) blocked creation")
+        print(f"      - Backend error during task initialization")
+        print(f"      To retry: mfilm create --prompt \"{args.prompt}\" --label \"{args.label}\"")
+        sys.exit(1)
 
     # Save task
     task_data = {

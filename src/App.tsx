@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Sparkles, Image as ImageIcon, Film, Layers, CheckCircle2, AlertCircle, Megaphone } from "lucide-react";
-import { VideoClip, AppStep, WorkflowState, Product, LogoResult, ProductImageResult, AdVideoResult, AdWorkflowStep } from "./types";
+import { VideoClip, AppStep, WorkflowState, Product, LogoResult, LogoVariant, ProductImageResult, AdVideoResult, AdWorkflowStep } from "./types";
 import Sidebar from "./components/Sidebar";
 import PromptOptimizeStep from "./components/PromptOptimizeStep";
 import ImageGenerateStep from "./components/ImageGenerateStep";

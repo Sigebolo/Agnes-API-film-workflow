@@ -11,8 +11,11 @@ Usage:
 """
 
 import argparse
+import base64
 import json
 import os
+import re
+import signal
 import sys
 import time
 import threading
@@ -31,11 +34,28 @@ TASKS_DIR = os.path.expanduser("~/.mfilm/tasks")
 AGNES_API_BASE = "https://apihub.agnes-ai.com"
 SUBMIT_URL = f"{AGNES_API_BASE}/v1/videos"
 POLL_URL = f"{AGNES_API_BASE}/agnesapi?video_id="
+DNA_DIR = os.path.expanduser("~/.mfilm/dna")
+DAEMON_PID_FILE = os.path.expanduser("~/.mfilm/daemon.pid")
 
 
 def ensure_dirs():
     os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
     os.makedirs(TASKS_DIR, exist_ok=True)
+    os.makedirs(DNA_DIR, exist_ok=True)
+
+
+def resolve_video_id(video_id: str) -> str:
+    """Decode Agnes base64 video_id to extract the real ID for polling."""
+    if video_id.startswith("video_"):
+        try:
+            b64 = video_id[len("video_"):]
+            decoded = base64.b64decode(b64).decode("utf-8")
+            match = re.search(r"video_id:(video_[^;]+)", decoded)
+            if match:
+                return match.group(1)
+        except Exception:
+            pass
+    return video_id
 
 
 def load_config():
@@ -79,6 +99,57 @@ def save_task(task_id, data):
     path = os.path.join(TASKS_DIR, f"{task_id}.json")
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
+
+
+# ============================================
+# DNA Presets (R2)
+# ============================================
+
+def load_dna(name: str) -> dict:
+    path = os.path.join(DNA_DIR, f"{name}.json")
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            return json.load(f)
+    return None
+
+
+def save_dna(name: str, anchor_url: str, traits: str):
+    ensure_dirs()
+    data = {
+        "name": name,
+        "anchor_url": anchor_url,
+        "traits": traits,
+        "created_at": datetime.now().isoformat(),
+    }
+    path = os.path.join(DNA_DIR, f"{name}.json")
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+    return data
+
+
+def delete_dna(name: str) -> bool:
+    path = os.path.join(DNA_DIR, f"{name}.json")
+    if os.path.exists(path):
+        os.remove(path)
+        return True
+    return False
+
+
+def list_dna() -> list:
+    ensure_dirs()
+    presets = []
+    for f in sorted(Path(DNA_DIR).glob("*.json")):
+        with open(f, "r") as fh:
+            presets.append(json.load(fh))
+    return presets
+
+
+def inject_dna(prompt: str, dna: dict) -> str:
+    """Prepend DNA traits to the front of the prompt."""
+    traits = dna.get("traits", "")
+    if traits:
+        return f"{traits}, {prompt}"
+    return prompt
 
 
 # ============================================
@@ -179,6 +250,13 @@ class ProgressIndicator:
         sys.stdout.flush()
 
 
+def render_bar(percent: int, width: int = 30) -> str:
+    """Render an ANSI progress bar: [████████░░░░░░░░] 72%"""
+    filled = int(width * percent / 100)
+    bar = "\u2588" * filled + "\u2591" * (width - filled)
+    return f"[{bar}] {percent}%"
+
+
 # ============================================
 # API Client
 # ============================================
@@ -272,9 +350,11 @@ def poll_task(api_key: str, video_id: str, timeout: int = 600) -> dict:
     """Poll task status until completion."""
     start = time.time()
     last_status = ""
+    resolved_id = resolve_video_id(video_id)
+    zombie_threshold = 600  # 10 minutes at 0% = zombie
 
     while time.time() - start < timeout:
-        data = api_request("GET", f"{POLL_URL}{video_id}", api_key, timeout=30)
+        data = api_request("GET", f"{POLL_URL}{resolved_id}", api_key, timeout=30)
 
         if data.get("error") and data["error"] not in ("timeout", "connection_error"):
             return {"success": False, "error": data["error"]}
@@ -282,6 +362,10 @@ def poll_task(api_key: str, video_id: str, timeout: int = 600) -> dict:
         status = data.get("status", "unknown").lower()
         progress = data.get("progress", 0)
         elapsed = int(time.time() - start)
+
+        # Zombie detection: stuck at 0% for >10 minutes
+        if progress == 0 and elapsed > zombie_threshold and status in ("queued", "not_start", "unknown"):
+            print(f"  ⚠️ 僵尸任务警告: 已等待 {elapsed}s，进度仍为 0%。可能需要手动干预。")
 
         if status != last_status:
             status_icons = {
@@ -295,23 +379,31 @@ def poll_task(api_key: str, video_id: str, timeout: int = 600) -> dict:
                 "failed": "[Failed]",
             }
             icon = status_icons.get(status, f"[{status}]")
-            print(f"  {elapsed}s {icon} {progress}%")
+            bar = render_bar(progress)
+            print(f"  {elapsed}s {icon} {bar}")
             last_status = status
+        elif progress > 0:
+            # Update progress bar inline (overwrite previous line)
+            bar = render_bar(progress)
+            sys.stdout.write(f"\r  {elapsed}s [Rendering] {bar} ")
+            sys.stdout.flush()
 
         if status in ("completed", "success"):
+            sys.stdout.write("\n")
             url = data.get("video_url") or data.get("remixed_from_video_id") or data.get("url")
             if url:
                 return {"success": True, "video_url": url, "elapsed": elapsed}
             return {"success": False, "error": "Completed but no URL"}
 
         if status == "failed":
+            sys.stdout.write("\n")
             return {"success": False, "error": data.get("error", "Unknown error")}
 
         time.sleep(10)
 
     # Timeout — final check
     print(f"  [Timeout, checking final status...]")
-    data = api_request("GET", f"{POLL_URL}{video_id}", api_key, timeout=30)
+    data = api_request("GET", f"{POLL_URL}{resolved_id}", api_key, timeout=30)
 
     if data.get("status", "").lower() in ("completed", "success"):
         url = data.get("video_url") or data.get("remixed_from_video_id")
@@ -360,11 +452,30 @@ def cmd_create(args):
         print("[Error] No API key. Run: mfilm config --api-key <key>")
         sys.exit(1)
 
+    # R2: Load DNA preset if specified
+    dna = None
+    anchor_image = args.anchor_image
+    if hasattr(args, "use_dna") and args.use_dna:
+        dna = load_dna(args.use_dna)
+        if not dna:
+            print(f"[Error] DNA preset '{args.use_dna}' not found. Run: mfilm dna list")
+            sys.exit(1)
+        print(f"  [DNA loaded: {dna['name']}]")
+        if dna.get("anchor_url") and not anchor_image:
+            anchor_image = dna["anchor_url"]
+
     # Enhance prompt
     print(f"[Creating task: {args.label or 'untitled'}]")
     print(f"  Duration: {args.duration}s ({align_frames(args.duration)} frames)")
 
-    enhanced = enhance_prompt(args.prompt)
+    enhanced = args.prompt
+
+    # R2: Inject DNA traits at front of prompt
+    if dna:
+        enhanced = inject_dna(enhanced, dna)
+        print(f"  [DNA traits injected]")
+
+    enhanced = enhance_prompt(enhanced)
     if enhanced != args.prompt:
         print(f"  [Prompt enhanced]")
 
@@ -373,7 +484,7 @@ def cmd_create(args):
     result = submit_task(
         api_key=api_key,
         prompt=enhanced,
-        image_url=args.anchor_image,
+        image_url=anchor_image,
         duration=args.duration,
         label=args.label,
     )
@@ -385,18 +496,36 @@ def cmd_create(args):
     video_id = result["video_id"]
     print(f"  [Task ID: {video_id}]")
 
+    # R1: 强校验 — 提交后立即确认任务已挂载
+    resolved_id = resolve_video_id(video_id)
+    verified = False
+    for check in range(5):
+        time.sleep(1)
+        check_data = api_request("GET", f"{POLL_URL}{resolved_id}", api_key, timeout=10)
+        if not check_data.get("error"):
+            verified = True
+            break
+        if "not_found" not in str(check_data.get("error", "")):
+            verified = True
+            break
+    if verified:
+        print(f"  ✅ 任务已确认存在于云端队列")
+    else:
+        print(f"  ⚠️ 警告: 任务 {video_id} 提交后未能确认存在，可能被云端吞单")
+
     # Save task
     task_data = {
         "video_id": video_id,
         "label": args.label or "untitled",
         "prompt": enhanced,
         "original_prompt": args.prompt,
-        "image_url": args.anchor_image,
+        "image_url": anchor_image,
         "duration": args.duration,
         "num_frames": result["num_frames"],
         "status": "submitted",
         "created_at": datetime.now().isoformat(),
         "output_dir": args.output_dir,
+        "dna_name": dna["name"] if dna else None,
     }
     save_task(video_id, task_data)
 
@@ -406,6 +535,7 @@ def cmd_create(args):
         "label": args.label,
         "status": "submitted",
         "created_at": task_data["created_at"],
+        "dna_name": dna["name"] if dna else None,
     }
     save_state(state)
 
@@ -472,10 +602,12 @@ def cmd_status(args):
         # Live check if API key available
         if api_key and task["status"] not in ("completed", "failed"):
             print(f"\n  [Checking live status...]")
-            data = api_request("GET", f"{POLL_URL}{args.id}", api_key, timeout=30)
+            resolved = resolve_video_id(args.id)
+            data = api_request("GET", f"{POLL_URL}{resolved}", api_key, timeout=30)
             status = data.get("status", "unknown")
             progress = data.get("progress", 0)
-            print(f"  Live: {status} {progress}%")
+            bar = render_bar(progress)
+            print(f"  Live: {status} {bar}")
 
     elif args.all:
         # All tasks
@@ -524,7 +656,8 @@ def cmd_sync(args):
             continue
 
         # Check live status
-        data = api_request("GET", f"{POLL_URL}{tid}", api_key, timeout=30)
+        resolved = resolve_video_id(tid)
+        data = api_request("GET", f"{POLL_URL}{resolved}", api_key, timeout=30)
         status = data.get("status", "").lower()
 
         if status in ("completed", "success"):
@@ -582,6 +715,216 @@ def cmd_config(args):
                 print(f"  {k}: {v}")
 
 
+def cmd_dna(args):
+    """Manage character DNA presets."""
+    if args.dna_action == "save":
+        if not args.name or not args.traits:
+            print("[Error] Need --name and --traits")
+            sys.exit(1)
+        data = save_dna(args.name, args.anchor or "", args.traits)
+        print(f"[DNA saved: {data['name']}]")
+        print(f"  Anchor: {data['anchor_url'] or '(none)'}")
+        print(f"  Traits: {data['traits']}")
+
+    elif args.dna_action == "load":
+        if not args.name:
+            print("[Error] Need --name")
+            sys.exit(1)
+        dna = load_dna(args.name)
+        if not dna:
+            print(f"[Not found: {args.name}]")
+            sys.exit(1)
+        print(f"\n[DNA: {dna['name']}]")
+        print(f"  Anchor: {dna.get('anchor_url', '(none)')}")
+        print(f"  Traits: {dna.get('traits', '(none)')}")
+        print(f"  Created: {dna.get('created_at', '?')}")
+
+    elif args.dna_action == "list":
+        presets = list_dna()
+        if not presets:
+            print("[No DNA presets saved]")
+            return
+        print(f"\n[Found {len(presets)} preset(s)]\n")
+        print(f"{'Name':<25} {'Anchor':<15} {'Traits'}")
+        print("-" * 70)
+        for p in presets:
+            name = p.get("name", "?")[:23]
+            anchor = "Yes" if p.get("anchor_url") else "No"
+            traits = (p.get("traits", "") or "")[:30]
+            print(f"{name:<25} {anchor:<15} {traits}")
+
+    elif args.dna_action == "delete":
+        if not args.name:
+            print("[Error] Need --name")
+            sys.exit(1)
+        if delete_dna(args.name):
+            print(f"[Deleted: {args.name}]")
+        else:
+            print(f"[Not found: {args.name}]")
+
+
+def cmd_daemon(args):
+    """Manage the background daemon process."""
+    if args.daemon_action == "status":
+        if os.path.exists(DAEMON_PID_FILE):
+            with open(DAEMON_PID_FILE, "r") as f:
+                pid = int(f.read().strip())
+            try:
+                os.kill(pid, 0)
+                print(f"[Daemon running: PID {pid}]")
+            except OSError:
+                print(f"[Daemon not running (stale PID file: {pid})]")
+                os.remove(DAEMON_PID_FILE)
+        else:
+            print("[Daemon not running]")
+        return
+
+    if args.daemon_action == "stop":
+        if not os.path.exists(DAEMON_PID_FILE):
+            print("[Daemon not running]")
+            return
+        with open(DAEMON_PID_FILE, "r") as f:
+            pid = int(f.read().strip())
+        try:
+            os.kill(pid, signal.SIGTERM)
+            print(f"[Daemon stopped: PID {pid}]")
+        except OSError:
+            print(f"[Process {pid} not found]")
+        os.remove(DAEMON_PID_FILE)
+        return
+
+    if args.daemon_action == "start":
+        # Check if already running
+        if os.path.exists(DAEMON_PID_FILE):
+            with open(DAEMON_PID_FILE, "r") as f:
+                pid = int(f.read().strip())
+            try:
+                os.kill(pid, 0)
+                print(f"[Daemon already running: PID {pid}]")
+                return
+            except OSError:
+                os.remove(DAEMON_PID_FILE)
+
+        # Fork to background
+        pid = os.fork() if hasattr(os, "fork") else None
+        if pid is None:
+            # Windows: no fork, run inline with a note
+            print("[Starting daemon (foreground on Windows)...]")
+            _daemon_loop(args)
+            return
+
+        # Parent: write PID and exit
+        if pid > 0:
+            ensure_dirs()
+            with open(DAEMON_PID_FILE, "w") as f:
+                f.write(str(pid))
+            print(f"[Daemon started: PID {pid}]")
+            return
+
+        # Child: become session leader
+        os.setsid()
+        _daemon_loop(args)
+        os._exit(0)
+
+
+def _daemon_loop(args):
+    """Main daemon polling loop."""
+    config = load_config()
+    api_key = args.api_key or config.get("api_key")
+    if not api_key:
+        print("[Daemon] No API key. Run: mfilm config --api-key <key>")
+        return
+
+    output_dir = args.output_dir or config.get("output_dir", "./downloads")
+    os.makedirs(output_dir, exist_ok=True)
+
+    interval = getattr(args, "interval", 60)
+    running = True
+
+    def handle_signal(sig, frame):
+        nonlocal running
+        running = False
+
+    signal.signal(signal.SIGTERM, handle_signal)
+    signal.signal(signal.SIGINT, handle_signal)
+
+    print(f"[Daemon] Monitoring every {interval}s, output: {output_dir}")
+
+    while running:
+        try:
+            _daemon_check_once(api_key, output_dir)
+        except Exception as e:
+            print(f"[Daemon] Error: {e}")
+        time.sleep(interval)
+
+    # Cleanup PID file
+    if os.path.exists(DAEMON_PID_FILE):
+        os.remove(DAEMON_PID_FILE)
+    print("[Daemon] Stopped")
+
+
+def _daemon_check_once(api_key: str, output_dir: str):
+    """Check all pending tasks and download completed ones. Also writes metadata .json."""
+    state = load_state()
+    tasks = state.get("tasks", {})
+    downloaded = 0
+
+    for tid, info in tasks.items():
+        if info.get("status") in ("completed", "failed", "synced"):
+            continue
+
+        resolved = resolve_video_id(tid)
+        data = api_request("GET", f"{POLL_URL}{resolved}", api_key, timeout=30)
+
+        status = data.get("status", "").lower()
+        progress = data.get("progress", 0)
+
+        if status in ("completed", "success"):
+            url = data.get("video_url") or data.get("remixed_from_video_id")
+            if url:
+                label = info.get("label") or tid[:8]
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"{label}_{timestamp}.mp4"
+                filepath = os.path.join(output_dir, filename)
+
+                if download_video(url, filepath):
+                    # Metadata sync: save .json alongside .mp4
+                    meta_path = filepath.rsplit(".", 1)[0] + ".json"
+                    task_data = load_task(tid) or {}
+                    meta = {
+                        "video_id": tid,
+                        "label": label,
+                        "prompt": task_data.get("prompt", ""),
+                        "original_prompt": task_data.get("original_prompt", ""),
+                        "duration": task_data.get("duration"),
+                        "num_frames": task_data.get("num_frames"),
+                        "image_url": task_data.get("image_url"),
+                        "dna_name": task_data.get("dna_name"),
+                        "local_path": filepath,
+                        "downloaded_at": datetime.now().isoformat(),
+                    }
+                    with open(meta_path, "w") as f:
+                        json.dump(meta, f, indent=2)
+
+                    # Update state
+                    state["tasks"][tid]["status"] = "synced"
+                    save_state(state)
+
+                    # Update task file
+                    task_data["status"] = "synced"
+                    task_data["local_path"] = filepath
+                    save_task(tid, task_data)
+
+                    downloaded += 1
+
+        elif status == "failed":
+            state["tasks"][tid]["status"] = "failed"
+            save_state(state)
+
+    if downloaded > 0:
+        print(f"[Daemon] Downloaded {downloaded} video(s)")
+
+
 def cmd_batch(args):
     """Batch create from JSON file."""
     if not os.path.exists(args.file):
@@ -623,7 +966,9 @@ def main():
         epilog="""
 Examples:
   mfilm create --prompt "Product showcase" --duration 15 --label "Ad_01"
-  mfilm create --prompt "Character animation" --anchor-image "https://..." --output-dir "./videos"
+  mfilm create --use-dna "Maoning" --prompt "在书房说话" --async
+  mfilm dna save "Maoning" --anchor "https://..." --traits "20岁女孩"
+  mfilm dna list
   mfilm status --all
   mfilm status --id vid_xxxxx
   mfilm sync --output-dir "D:/Cinematic_Vault"
@@ -639,6 +984,7 @@ Examples:
     p_create.add_argument("--prompt", "-p", required=True, help="Scene description")
     p_create.add_argument("--duration", "-d", type=int, default=15, help="Duration in seconds (5-30)")
     p_create.add_argument("--anchor-image", "-i", help="Reference image URL")
+    p_create.add_argument("--use-dna", dest="use_dna", help="Use DNA preset by name")
     p_create.add_argument("--label", "-l", help="Asset label/name")
     p_create.add_argument("--output-dir", "-o", help="Download directory")
     p_create.add_argument("--api-key", help="Agnes API key")
@@ -668,6 +1014,20 @@ Examples:
     p_batch.add_argument("--api-key", help="Agnes API key")
     p_batch.add_argument("--output-dir", "-o", help="Download directory")
 
+    # dna (R2)
+    p_dna = subparsers.add_parser("dna", help="Manage character DNA presets")
+    p_dna.add_argument("dna_action", choices=["save", "load", "list", "delete"], help="Action to perform")
+    p_dna.add_argument("--name", "-n", help="Preset name")
+    p_dna.add_argument("--anchor", "-a", help="Anchor image URL")
+    p_dna.add_argument("--traits", "-t", help="Character traits description")
+
+    # daemon (R3)
+    p_daemon = subparsers.add_parser("daemon", help="Manage background daemon process")
+    p_daemon.add_argument("daemon_action", choices=["start", "stop", "status"], help="Action to perform")
+    p_daemon.add_argument("--api-key", help="Agnes API key")
+    p_daemon.add_argument("--output-dir", "-o", help="Download directory")
+    p_daemon.add_argument("--interval", type=int, default=60, help="Check interval in seconds (default: 60)")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -680,6 +1040,8 @@ Examples:
         "sync": cmd_sync,
         "config": cmd_config,
         "batch": cmd_batch,
+        "dna": cmd_dna,
+        "daemon": cmd_daemon,
     }
 
     commands[args.command](args)

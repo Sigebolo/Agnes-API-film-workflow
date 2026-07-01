@@ -6,6 +6,7 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import os from "os";
 import http from "http";
 import { exec } from "child_process";
 import { WebSocketServer, WebSocket } from "ws";
@@ -888,7 +889,7 @@ async function pollAgnesVideoStatus(
       }
 
       if (status === "failed") {
-        ws.send(JSON.stringify({ type: "error", taskId, message: inner.error || rawData.error || "Video generation failed" }));
+        ws.send(JSON.stringify({ type: "error", taskId, message: rawData.error || "Video generation failed" }));
         return;
       }
     } catch (err: any) {
@@ -1419,6 +1420,47 @@ app.delete("/api/tasks/:id", (req, res) => {
   const tasks = loadTasks().filter((t) => t.id !== req.params.id);
   saveTasks(tasks);
   res.json({ ok: true, count: tasks.length });
+});
+
+// ==========================================
+// 4.7 API KEY SYNC — share key between web UI and CLI
+// ==========================================
+const MFILM_CONFIG = path.join(os.homedir(), ".mfilm", "config.json");
+
+app.post("/api/sync-cli-key", (req, res) => {
+  const { apiKey } = req.body;
+  if (!apiKey) return res.status(400).json({ error: "Missing apiKey" });
+
+  try {
+    const dir = path.dirname(MFILM_CONFIG);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+    let config: Record<string, string> = {};
+    if (fs.existsSync(MFILM_CONFIG)) {
+      config = JSON.parse(fs.readFileSync(MFILM_CONFIG, "utf-8"));
+    }
+    config.api_key = apiKey;
+    fs.writeFileSync(MFILM_CONFIG, JSON.stringify(config, null, 2));
+    res.json({ ok: true, message: "CLI config updated" });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/sync-cli-tasks", (req, res) => {
+  const tasksDir = path.join(os.homedir(), ".mfilm", "tasks");
+  if (!fs.existsSync(tasksDir)) return res.json({ tasks: [] });
+
+  try {
+    const files = fs.readdirSync(tasksDir).filter(f => f.endsWith(".json"));
+    const tasks = files.map(f => {
+      const data = JSON.parse(fs.readFileSync(path.join(tasksDir, f), "utf-8"));
+      return data;
+    });
+    res.json({ tasks });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ==========================================

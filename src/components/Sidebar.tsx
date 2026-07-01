@@ -37,14 +37,44 @@ export default function Sidebar({
   const [refreshing, setRefreshing] = useState<string | null>(null);
 
   useEffect(() => {
-    listTasks().then(setTasks).catch(() => {});
+    loadAllTasks();
   }, []);
+
+  const loadAllTasks = async () => {
+    try {
+      const [webTasks, cliRes] = await Promise.all([
+        listTasks().catch(() => []),
+        fetch("/api/sync-cli-tasks").then(r => r.json()).catch(() => ({ tasks: [] })),
+      ]);
+
+      // Merge CLI tasks into web tasks
+      const cliTasks: TaskRecord[] = (cliRes.tasks || []).map((t: any) => ({
+        id: t.video_id || "",
+        prompt: t.prompt || "",
+        status: t.status === "synced" ? "completed" : t.status,
+        videoUrl: t.video_url || "",
+        createdAt: t.created_at || "",
+        source: "cli" as const,
+      }));
+
+      const merged = [...webTasks, ...cliTasks];
+      setTasks(merged);
+    } catch {
+      setTasks([]);
+    }
+  };
 
   const handleSave = () => {
     onSaveApiKey(apiKey);
     setSavedKey(apiKey);
     setShowSaved(true);
     setTimeout(() => setShowSaved(false), 2000);
+    // Sync to CLI config
+    fetch("/api/sync-cli-key", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiKey }),
+    }).catch(() => {});
   };
 
   const adSteps = [

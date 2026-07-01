@@ -102,7 +102,7 @@ pip install requests
 ### 使用
 
 ```bash
-# 配置 API key
+# 配置 API key（自动同步到 CLI）
 python mfilm.py config --api-key "sk-xxx"
 
 # 创建视频（等待完成）
@@ -111,7 +111,22 @@ python mfilm.py create --prompt "产品展示" --duration 15 --label "Ad_01" --o
 # 创建视频（异步）
 python mfilm.py create --prompt "人物动画" --anchor-image "https://..." --async
 
-# 查看状态
+# 创建视频（使用 DNA 预设）
+python mfilm.py create --use-dna "Maoning" --prompt "在书房说话" --async
+
+# 长视频链式生成
+python mfilm.py chain --prompt "场景1" --prompt "场景2" --prompt "场景3" --duration 10
+python mfilm.py chain --scenes scenes.json --output-dir ./output
+
+# DNA 角色预设管理
+python mfilm.py dna save "Maoning" --anchor "https://..." --traits "20岁女孩"
+python mfilm.py dna list
+
+# 后台守护进程
+python mfilm.py daemon start
+python mfilm.py daemon status
+
+# 查看状态（带进度条）
 python mfilm.py status --all
 python mfilm.py status --id <TaskID>
 
@@ -126,11 +141,29 @@ python mfilm.py batch --file tasks.json
 
 | 命令 | 功能 |
 |------|------|
-| `create` | Prompt 自动增强（光影、镜头、8K材质），帧数 8n+1 对齐 |
-| `status` | 单任务/批量状态查询 |
+| `create` | Prompt 自动增强（光影、镜头、8K材质），帧数 8n+1 对齐，DNA 注入，提交后自动验证 |
+| `chain` | 长视频链式生成：多场景串联，末帧自动提取为下一段参考图，ffmpeg 自动拼接 |
+| `dna` | 角色 DNA 预设管理（save/load/list/delete），锚点图片 + 特征描述 |
+| `daemon` | 后台守护进程，自动轮询下载完成视频，生成元数据 .json |
+| `status` | 单任务/批量状态查询，ANSI 进度条，僵尸任务检测 |
 | `sync` | 自动检测完成任务并下载 |
 | `config` | 管理 API key、输出目录 |
 | `batch` | JSON 批量任务 |
+
+### 长视频链场景 JSON 格式
+
+```json
+{
+  "initial_image": "https://...",
+  "dna": "Maoning_Standard",
+  "output_dir": "./chain_output",
+  "scenes": [
+    {"prompt": "女孩在沙发上看书", "duration": 15, "label": "scene_01"},
+    {"prompt": "她放下书，站起来伸懒腰", "duration": 10, "label": "scene_02"},
+    {"prompt": "走向窗边，阳光洒在脸上", "duration": 15, "label": "scene_03"}
+  ]
+}
+```
 
 ## 输出示例
 
@@ -270,7 +303,7 @@ pip install requests
 ### Usage
 
 ```bash
-# Configure API key
+# Configure API key (auto-synced to CLI config)
 python mfilm.py config --api-key "sk-xxx"
 
 # Create video (wait for completion)
@@ -279,7 +312,22 @@ python mfilm.py create --prompt "Product showcase" --duration 15 --label "Ad_01"
 # Create video (async)
 python mfilm.py create --prompt "Character animation" --anchor-image "https://..." --async
 
-# Check status
+# Create video (with DNA preset)
+python mfilm.py create --use-dna "Maoning" --prompt "Speaking in study" --async
+
+# Long video chain generation
+python mfilm.py chain --prompt "Scene 1" --prompt "Scene 2" --prompt "Scene 3" --duration 10
+python mfilm.py chain --scenes scenes.json --output-dir ./output
+
+# DNA character preset management
+python mfilm.py dna save "Maoning" --anchor "https://..." --traits "20-year-old girl"
+python mfilm.py dna list
+
+# Background daemon
+python mfilm.py daemon start
+python mfilm.py daemon status
+
+# Check status (with progress bar)
 python mfilm.py status --all
 python mfilm.py status --id <TaskID>
 
@@ -294,11 +342,29 @@ python mfilm.py batch --file tasks.json
 
 | Command | Function |
 |---------|----------|
-| `create` | Auto-enhance prompt (lighting, camera, 8K), frame alignment (8n+1) |
-| `status` | Single/batch task monitoring |
+| `create` | Auto-enhance prompt (lighting, camera, 8K), frame alignment (8n+1), DNA injection, post-submit verification |
+| `chain` | Long video chain: multi-scene sequential generation, auto-extract last frame as next reference, ffmpeg concat |
+| `dna` | Character DNA preset management (save/load/list/delete), anchor image + traits |
+| `daemon` | Background daemon, auto-poll and download completed videos, metadata .json sync |
+| `status` | Single/batch task monitoring, ANSI progress bar, zombie task detection |
 | `sync` | Auto-detect completed tasks and download |
 | `config` | Manage API key, output directory |
 | `batch` | JSON batch task creation |
+
+### Chain Scene JSON Format
+
+```json
+{
+  "initial_image": "https://...",
+  "dna": "Maoning_Standard",
+  "output_dir": "./chain_output",
+  "scenes": [
+    {"prompt": "Girl reading on sofa", "duration": 15, "label": "scene_01"},
+    {"prompt": "She puts down the book and stretches", "duration": 10, "label": "scene_02"},
+    {"prompt": "Walks to the window, sunlight on her face", "duration": 15, "label": "scene_03"}
+  ]
+}
+```
 
 ## Agent Automation
 

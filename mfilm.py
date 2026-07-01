@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-MFilm-CLI — Motion Film Management Interface
+MFilm-CLI - Motion Film Management Interface
 Industrial-grade film asset management system.
 
 Usage:
@@ -251,9 +251,9 @@ class ProgressIndicator:
 
 
 def render_bar(percent: int, width: int = 30) -> str:
-    """Render an ANSI progress bar: [████████░░░░░░░░] 72%"""
+    """Render an ANSI progress bar: [########........] 50%"""
     filled = int(width * percent / 100)
-    bar = "\u2588" * filled + "\u2591" * (width - filled)
+    bar = "#" * filled + "." * (width - filled)
     return f"[{bar}] {percent}%"
 
 
@@ -365,7 +365,7 @@ def poll_task(api_key: str, video_id: str, timeout: int = 600) -> dict:
 
         # Zombie detection: stuck at 0% for >10 minutes
         if progress == 0 and elapsed > zombie_threshold and status in ("queued", "not_start", "unknown"):
-            print(f"  ⚠️ 僵尸任务警告: 已等待 {elapsed}s，进度仍为 0%。可能需要手动干预。")
+            print(f"  [!] Zombie task warning: waited {elapsed}s, progress still 0%. May need manual intervention.")
 
         if status != last_status:
             status_icons = {
@@ -440,6 +440,208 @@ def download_video(url: str, output_path: str) -> bool:
 
 
 # ============================================
+# Long Video Chain Helpers
+# ============================================
+
+def extract_last_frame(video_path: str) -> str:
+    """Extract last frame from video, return base64 data URL for API reuse."""
+    import subprocess
+    frame_path = video_path.rsplit(".", 1)[0] + "_lastframe.jpg"
+    result = subprocess.run(
+        ["ffmpeg", "-sseof", "-1", "-i", video_path,
+         "-frames:v", "1", "-q:v", "2", frame_path, "-y"],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg failed: {result.stderr.decode(errors='replace')[:200]}")
+
+    with open(frame_path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode()
+    return f"data:image/jpeg;base64,{b64}"
+
+
+def concat_videos(video_paths: list, output_path: str) -> bool:
+    """Concatenate multiple videos using ffmpeg concat demuxer."""
+    import subprocess
+    list_file = output_path + ".txt"
+    with open(list_file, "w", encoding="utf-8") as f:
+        for p in video_paths:
+            f.write(f"file '{os.path.abspath(p)}'\n")
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-f", "concat", "-safe", "0",
+             "-i", list_file, "-c", "copy", output_path, "-y"],
+            capture_output=True
+        )
+        return result.returncode == 0
+    finally:
+        if os.path.exists(list_file):
+            os.remove(list_file)
+
+
+def cmd_chain(args):
+    """Execute a long video chain: generate multiple scenes sequentially,
+    using each scene's last frame as the next scene's reference image."""
+    config = load_config()
+    api_key = args.api_key or config.get("api_key")
+    if not api_key:
+        print("[Error] No API key. Run: mfilm config --api-key <key>")
+        sys.exit(1)
+
+    # Load scenes from JSON or inline prompts
+    scenes = []
+    initial_image = None
+    dna_name = None
+    no_concat = args.no_concat if hasattr(args, "no_concat") else False
+
+    if args.scenes:
+        if not os.path.exists(args.scenes):
+            print(f"[Error] Scene file not found: {args.scenes}")
+            sys.exit(1)
+        with open(args.scenes, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        initial_image = data.get("initial_image")
+        dna_name = data.get("dna")
+        no_concat = data.get("no_concat", no_concat)
+        scenes = data.get("scenes", [])
+    elif args.prompt:
+        for i, p in enumerate(args.prompt):
+            scenes.append({
+                "prompt": p,
+                "duration": args.duration,
+                "label": f"chain_{i+1:02d}",
+            })
+    else:
+        print("[Error] Need --scenes <file.json> or --prompt \"scene 1\" --prompt \"scene 2\"")
+        sys.exit(1)
+
+    if not scenes:
+        print("[Error] No scenes defined")
+        sys.exit(1)
+
+    output_dir = args.output_dir or config.get("output_dir", "./chain_output")
+    os.makedirs(output_dir, exist_ok=True)
+
+    duration = args.duration
+    ref_image = initial_image
+
+    # Load DNA if specified
+    dna = None
+    if dna_name:
+        dna = load_dna(dna_name)
+        if dna:
+            print(f"[DNA loaded: {dna['name']}]")
+            if dna.get("anchor_url") and not ref_image:
+                ref_image = dna["anchor_url"]
+
+    print(f"[Chain: {len(scenes)} scenes, {duration}s each, ~{len(scenes)*duration}s total]")
+    print(f"[Output: {output_dir}]\n")
+
+    video_paths = []
+
+    for i, scene in enumerate(scenes):
+        label = scene.get("label", f"chain_{i+1:02d}")
+        prompt = scene["prompt"]
+        scene_duration = scene.get("duration", duration)
+
+        print(f"--- Scene {i+1}/{len(scenes)}: {label} ---")
+
+        # Build prompt
+        enhanced = prompt
+        if dna:
+            enhanced = inject_dna(enhanced, dna)
+        enhanced = enhance_prompt(enhanced)
+
+        # Submit
+        print(f"  [Submitting...]")
+        result = submit_task(
+            api_key=api_key,
+            prompt=enhanced,
+            image_url=ref_image,
+            duration=scene_duration,
+            label=label,
+        )
+
+        if not result["success"]:
+            print(f"  [FAILED at scene {i+1}: {result['error']}]")
+            print(f"  [Chain stopped. Completed {i}/{len(scenes)} scenes.]")
+            break
+
+        video_id = result["video_id"]
+        print(f"  [Task ID: {video_id}]")
+
+        # Save task
+        task_data = {
+            "video_id": video_id,
+            "label": label,
+            "prompt": enhanced,
+            "original_prompt": prompt,
+            "image_url": ref_image[:100] + "..." if ref_image and len(ref_image) > 100 else ref_image,
+            "duration": scene_duration,
+            "num_frames": result["num_frames"],
+            "status": "submitted",
+            "chain_index": i,
+            "created_at": datetime.now().isoformat(),
+            "output_dir": output_dir,
+        }
+        save_task(video_id, task_data)
+
+        # Poll
+        print(f"  [Waiting for completion...]")
+        poll_result = poll_task(api_key, video_id, timeout=600)
+
+        if not poll_result["success"]:
+            print(f"  [FAILED at scene {i+1}: {poll_result['error']}]")
+            task_data["status"] = "failed"
+            task_data["error"] = poll_result["error"]
+            save_task(video_id, task_data)
+            break
+
+        # Download
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{label}_{timestamp}.mp4"
+        filepath = os.path.join(output_dir, filename)
+
+        if download_video(poll_result["video_url"], filepath):
+            video_paths.append(filepath)
+            task_data["status"] = "completed"
+            task_data["video_url"] = poll_result["video_url"]
+            task_data["local_path"] = filepath
+            task_data["completed_at"] = datetime.now().isoformat()
+            save_task(video_id, task_data)
+
+            # Extract last frame for next scene
+            if i < len(scenes) - 1:
+                try:
+                    ref_image = extract_last_frame(filepath)
+                    print(f"  [Last frame extracted for next scene]")
+                except Exception as e:
+                    print(f"  [Warning: Could not extract last frame: {e}]")
+                    ref_image = None
+        else:
+            print(f"  [Download failed for scene {i+1}]")
+            break
+
+        print()
+
+    # Concat
+    if video_paths and not no_concat:
+        print(f"--- Concatenating {len(video_paths)} clips ---")
+        final_name = f"chain_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+        final_path = os.path.join(output_dir, final_name)
+
+        if concat_videos(video_paths, final_path):
+            size_mb = os.path.getsize(final_path) / (1024 * 1024)
+            print(f"  [Done! {len(video_paths)} clips -> {final_path} ({size_mb:.1f}MB)]")
+        else:
+            print(f"  [Concat failed. Individual clips saved in {output_dir}]")
+    elif video_paths:
+        print(f"[{len(video_paths)} clips saved to {output_dir}]")
+    else:
+        print(f"[No clips generated]")
+
+
+# ============================================
 # Commands
 # ============================================
 
@@ -509,9 +711,9 @@ def cmd_create(args):
             verified = True
             break
     if verified:
-        print(f"  ✅ 任务已确认存在于云端队列")
+        print(f"  [OK] Task confirmed in cloud queue")
     else:
-        print(f"  ⚠️ 警告: 任务 {video_id} 提交后未能确认存在，可能被云端吞单")
+        print(f"  [!] Warning: Task {video_id} not confirmed after submit, may have been dropped by cloud")
 
     # Save task
     task_data = {
@@ -961,7 +1163,7 @@ def cmd_batch(args):
 def main():
     parser = argparse.ArgumentParser(
         prog="mfilm",
-        description="MFilm-CLI — Motion Film Management Interface",
+        description="MFilm-CLI - Motion Film Management Interface",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -974,6 +1176,8 @@ Examples:
   mfilm sync --output-dir "D:/Cinematic_Vault"
   mfilm config --api-key "sk-xxx"
   mfilm batch --file tasks.json
+  mfilm chain --prompt "Scene 1" --prompt "Scene 2" --duration 10
+  mfilm chain --scenes chain.json --output-dir ./videos
         """
     )
 
@@ -1028,6 +1232,17 @@ Examples:
     p_daemon.add_argument("--output-dir", "-o", help="Download directory")
     p_daemon.add_argument("--interval", type=int, default=60, help="Check interval in seconds (default: 60)")
 
+    # chain (long video)
+    p_chain = subparsers.add_parser("chain", help="Generate long video from scene chain")
+    p_chain.add_argument("--scenes", "-s", help="JSON file with scene definitions")
+    p_chain.add_argument("--prompt", "-p", action="append", help="Scene prompt (repeat for multiple scenes)")
+    p_chain.add_argument("--duration", "-d", type=int, default=15, help="Duration per scene in seconds (default: 15)")
+    p_chain.add_argument("--initial-image", help="First scene reference image URL")
+    p_chain.add_argument("--dna", help="DNA preset name to use")
+    p_chain.add_argument("--output-dir", "-o", help="Output directory")
+    p_chain.add_argument("--no-concat", action="store_true", help="Don't auto-concatenate clips")
+    p_chain.add_argument("--api-key", help="Agnes API key")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -1042,6 +1257,7 @@ Examples:
         "batch": cmd_batch,
         "dna": cmd_dna,
         "daemon": cmd_daemon,
+        "chain": cmd_chain,
     }
 
     commands[args.command](args)

@@ -962,7 +962,7 @@ Output format (JSON):
         model: "agnes-2.0-flash",
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: `Generate 3 logo design prompts for: ${product.name} - ${product.description}` },
+          { role: "user", content: `Generate ${count} logo design prompts for: ${product.name} - ${product.description}` },
         ],
         temperature: 0.7,
         max_tokens: 2000,

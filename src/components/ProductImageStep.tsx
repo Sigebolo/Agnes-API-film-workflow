@@ -159,6 +159,10 @@ export default function ProductImageStep({ apiKey, product, logoImageUrl, onBack
             prev.map((v) => (v.id === variant.id ? { ...v, status: "failed" } : v))
           );
         }
+        // Rate limit: wait 3s between requests
+        if (i < newVariants.length - 1) {
+          await new Promise((r) => setTimeout(r, 3000));
+        }
       }
     } catch (err: any) {
       console.error("Failed to generate product images:", err);

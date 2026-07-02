@@ -96,6 +96,10 @@ export default function LogoGenerateStep({
             v.id === variant.id ? { ...v, status: "failed" as TaskStatus } : v
           ));
         }
+        // Rate limit: wait 3s between requests
+        if (i < newVariants.length - 1) {
+          await new Promise((r) => setTimeout(r, 3000));
+        }
       }
     } catch (err: any) {
       console.error("Failed to generate logo prompts:", err);

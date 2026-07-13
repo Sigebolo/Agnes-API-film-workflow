@@ -2,13 +2,17 @@
 
 # Agnes Film Studio
 
-**AI-Powered Video Ad Generator for Small Businesses**
+**Free AI Video Ad Generator for Small Businesses**
 
-Free Logo · Marketing Copy · Video Ads — No Design Skills Needed
+Logos · Marketing Copy · Video Ads — No Design Skills Needed
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/typescript-5.8-blue.svg)](https://www.typescriptlang.org/)
 [![Stars](https://img.shields.io/github/stars/Sigebolo/Agnes-API-film-workflow?style=social)](https://github.com/Sigebolo/Agnes-API-film-workflow)
+[![Issues](https://img.shields.io/github/issues/Sigebolo/Agnes-API-film-workflow)](https://github.com/Sigebolo/Agnes-API-film-workflow/issues)
+
+Keywords: `ai` `video-generation` `marketing` `ffmpeg` `react` `open-source`
 
 [中文](#中文) | [English](#what-is-agnes-film-studio)
 

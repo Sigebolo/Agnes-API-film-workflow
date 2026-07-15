@@ -44,6 +44,7 @@ export default function LogoGenerateStep({
   const [editedPrompts, setEditedPrompts] = useState<Record<string, string>>({});
   const [variantCount, setVariantCount] = useState(3);
   const [failedVariants, setFailedVariants] = useState<Set<string>>(new Set());
+  const [genLogs, setGenLogs] = useState<string[]>([]);
 
   // Retry-able image generation with exponential backoff
   const generateImageWithRetry = async (
@@ -98,9 +99,12 @@ export default function LogoGenerateStep({
 
   const handleGenerate = async () => {
     setFailedVariants(new Set());
+    setGenLogs(["🕐 Starting logo generation pipeline..."]);
     onGeneratingChange(true);
     try {
+      setGenLogs(prev => [...prev, `📡 Requesting ${variantCount} logo prompts from Agnes AI...`]);
       const result = await generateLogoApi(apiKey, product, variantCount);
+      setGenLogs(prev => [...prev, `✅ Received ${result.variants.length} prompts, starting image generation...`]);
 
       // Create variants from the prompts
       const newVariants: LogoVariant[] = result.variants.map((prompt, i) => ({
@@ -115,6 +119,7 @@ export default function LogoGenerateStep({
       const interRequestDelay = 4000;
       for (let i = 0; i < newVariants.length; i++) {
         const variant = newVariants[i];
+        setGenLogs(prev => [...prev, `🎨 Generating variant ${i + 1}/${newVariants.length}...`]);
         onVariantsChange(newVariants.map((v) => (v.id === variant.id ? { ...v, status: "generating" as TaskStatus } : v)));
 
         try {
@@ -122,9 +127,11 @@ export default function LogoGenerateStep({
           onVariantsChange(newVariants.map((v) =>
             v.id === variant.id ? { ...v, imageUrl, status: "completed" as TaskStatus } : v
           ));
+          setGenLogs(prev => [...prev, `✅ Variant ${i + 1} done`]);
           autoSaveImage(imageUrl, `logo_${i + 1}`);
         } catch (err: any) {
           console.error(`Failed to generate logo variant ${i + 1}:`, err);
+          setGenLogs(prev => [...prev, `❌ Variant ${i + 1} failed: ${err.message}`]);
           onVariantsChange(newVariants.map((v) =>
             v.id === variant.id ? { ...v, status: "failed" as TaskStatus } : v
           ));
@@ -132,13 +139,19 @@ export default function LogoGenerateStep({
           addToast?.(createToast("error", `Logo variant ${i + 1} failed: ${err.message}`));
         }
 
-        // Adaptive delay: longer for larger batches to avoid 503 overload
+        // Delay between requests
         if (i < newVariants.length - 1) {
+          setGenLogs(prev => [...prev, `⏳ Waiting ${interRequestDelay / 1000}s before next variant...`]);
           await new Promise((r) => setTimeout(r, interRequestDelay));
         }
       }
 
       const failedCount = failedVariants.size;
+      setGenLogs(prev => [...prev,
+        failedCount === 0
+          ? `🎉 All ${newVariants.length} logos generated successfully!`
+          : `⚠️ ${failedCount}/${newVariants.length} variants failed`
+      ]);
       if (failedCount > 0 && failedCount < newVariants.length) {
         addToast?.(createToast("warning", `${failedCount}/${newVariants.length} variants failed. Retry individually or reduce batch size.`));
       } else if (failedCount === newVariants.length) {
@@ -148,6 +161,7 @@ export default function LogoGenerateStep({
       }
     } catch (err: any) {
       console.error("Failed to generate logo prompts:", err);
+      setGenLogs(prev => [...prev, `❌ Failed: ${err.message}`]);
       addToast?.(createToast("error", `Logo generation failed: ${err.message}`));
     } finally {
       onGeneratingChange(false);
@@ -332,6 +346,51 @@ export default function LogoGenerateStep({
 
           {/* Right: Variants Grid */}
           <div className="lg:col-span-2 space-y-4">
+            {/* Live Generation Progress Panel */}
+            {isGenerating && (
+              <div className="bg-[#1a1a1c] border border-orange-500/30 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-orange-400 flex items-center gap-1.5">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    Generating logos...
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-mono">
+                    {variants.length > 0
+                      ? `${variants.filter(v => v.status === "completed").length}/${variants.length} done`
+                      : `Prompting AI...`}
+                  </span>
+                </div>
+
+                {/* Progress bar */}
+                {variants.length > 0 && (
+                  <div className="w-full h-1.5 bg-[#1f1f22] rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-orange-500 to-red-500 transition-all duration-500"
+                      style={{ width: `${(variants.filter(v => v.status === "completed").length / variants.length) * 100}%` }}
+                    />
+                  </div>
+                )}
+
+                {/* Live logs */}
+                <div className="bg-[#131315] border border-white/5 rounded-lg p-3 font-mono text-[10px] space-y-1 max-h-40 overflow-y-auto">
+                  {genLogs.map((log, i) => {
+                    const isLast = i === genLogs.length - 1;
+                    const isError = log.includes("❌");
+                    const isSuccess = log.includes("✅") || log.includes("🎉");
+                    return (
+                      <div
+                        key={i}
+                        className={`flex items-start gap-2 ${isError ? "text-red-400" : isLast ? "text-orange-400 animate-pulse" : isSuccess ? "text-green-400" : "text-slate-400"}`}
+                      >
+                        <span className="text-[9px] text-slate-600 select-none">[{i + 1}]</span>
+                        <span>{log}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {variants.length > 0 ? (
               <>
                 <ImageVariantGrid
@@ -375,9 +434,19 @@ export default function LogoGenerateStep({
               </>
             ) : (
               <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-12 text-center">
-                <Sparkles className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-                <p className="text-sm text-slate-400">Click "Generate Logo" to start designing</p>
-                <p className="text-xs text-slate-500 mt-1">AI will create {variantCount} different style variants for your product</p>
+                {isGenerating ? (
+                  <>
+                    <RefreshCw className="w-12 h-12 text-orange-500 mx-auto mb-4 animate-spin" />
+                    <p className="text-sm text-slate-300">AI is generating logo prompts...</p>
+                    <p className="text-xs text-slate-500 mt-1">This takes a few seconds</p>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-12 h-12 text-slate-600 mx-auto mb-4" />
+                    <p className="text-sm text-slate-400">Click "Generate Logo" to start designing</p>
+                    <p className="text-xs text-slate-500 mt-1">AI will create {variantCount} different style variants for your product</p>
+                  </>
+                )}
               </div>
             )}
           </div>

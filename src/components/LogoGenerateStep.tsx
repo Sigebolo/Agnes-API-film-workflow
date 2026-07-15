@@ -126,42 +126,44 @@ export default function LogoGenerateStep({
       const result = await generateLogoApi(apiKey, product, variantCount);
       setGenLogs(prev => [...prev, `✅ Received ${result.variants.length} prompts, starting image generation...`]);
 
-      // Create variants from the prompts
+      // Create variants from the prompts (use local mutable copy for consistent state)
       const newVariants: LogoVariant[] = result.variants.map((prompt, i) => ({
         id: `logo_${Date.now()}_${i}`,
         prompt,
         status: "idle" as TaskStatus,
       }));
 
-      onVariantsChange(newVariants);
+      // Track current state locally to avoid stale closures overwriting earlier variant statuses
+      const currentVariants = [...newVariants];
+      onVariantsChange([...currentVariants]);
 
       // Generate images for each variant sequentially with delay
       const interRequestDelay = 4000;
-      for (let i = 0; i < newVariants.length; i++) {
-        const variant = newVariants[i];
-        setGenLogs(prev => [...prev, `🎨 Generating variant ${i + 1}/${newVariants.length}...`]);
-        onVariantsChange(newVariants.map((v) => (v.id === variant.id ? { ...v, status: "generating" as TaskStatus } : v)));
+      for (let i = 0; i < currentVariants.length; i++) {
+        const variant = currentVariants[i];
+        setGenLogs(prev => [...prev, `🎨 Generating variant ${i + 1}/${currentVariants.length}...`]);
+        variant.status = "generating";
+        onVariantsChange([...currentVariants]);
 
         try {
           const imageUrl = await generateImageWithRetry(apiKey, variant.prompt);
-          onVariantsChange(newVariants.map((v) =>
-            v.id === variant.id ? { ...v, imageUrl, status: "completed" as TaskStatus } : v
-          ));
+          variant.imageUrl = imageUrl;
+          variant.status = "completed";
+          onVariantsChange([...currentVariants]);
           setGenLogs(prev => [...prev, `✅ Variant ${i + 1} done`]);
           autoSaveImage(imageUrl, `logo_${i + 1}`);
         } catch (err: any) {
           console.error(`Failed to generate logo variant ${i + 1}:`, err);
+          variant.status = "failed";
+          onVariantsChange([...currentVariants]);
           setGenLogs(prev => [...prev, `❌ Variant ${i + 1} failed: ${err.message}`]);
-          onVariantsChange(newVariants.map((v) =>
-            v.id === variant.id ? { ...v, status: "failed" as TaskStatus } : v
-          ));
           setFailedVariants((prev) => new Set([...prev, variant.id]));
           localFailedCount++;
           addToast?.(createToast("error", `Logo variant ${i + 1} failed: ${err.message}`));
         }
 
         // Delay between requests
-        if (i < newVariants.length - 1) {
+        if (i < currentVariants.length - 1) {
           setGenLogs(prev => [...prev, `⏳ Waiting ${interRequestDelay / 1000}s before next variant...`]);
           await new Promise((r) => setTimeout(r, interRequestDelay));
         }

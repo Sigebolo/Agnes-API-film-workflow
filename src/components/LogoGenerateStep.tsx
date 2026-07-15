@@ -51,7 +51,7 @@ export default function LogoGenerateStep({
     prompt: string,
     maxRetries = 3
   ): Promise<string> => {
-    let delay = 4000; // Start with 4s for large batches
+    let delay = 3000; // Start with 3s
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         const response = await fetch("/api/proxy/images", {
@@ -111,8 +111,8 @@ export default function LogoGenerateStep({
 
       onVariantsChange(newVariants);
 
-      // Generate images for each variant sequentially with adaptive delay
-      const interRequestDelay = variantCount >= 6 ? 5000 : 4000;
+      // Generate images for each variant sequentially with delay
+      const interRequestDelay = 4000;
       for (let i = 0; i < newVariants.length; i++) {
         const variant = newVariants[i];
         onVariantsChange(newVariants.map((v) => (v.id === variant.id ? { ...v, status: "generating" as TaskStatus } : v)));
@@ -293,9 +293,8 @@ export default function LogoGenerateStep({
             {/* Variant Count */}
             <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-4">
               <span className="text-xs font-semibold text-slate-300 block mb-1">Variants</span>
-              <span className="text-[10px] text-amber-400 block mb-2">⚠ 6–9 variants take longer due to API limits</span>
               <div className="flex gap-2">
-                {[3, 5, 6, 9].map((count) => (
+                {[3, 5].map((count) => (
                   <button
                     key={count}
                     onClick={() => setVariantCount(count)}

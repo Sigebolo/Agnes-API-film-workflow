@@ -65,3 +65,6 @@ downloads/
 *.mov
 *.mkv
 *.webm
+
+# Demo videos (intentionally tracked)
+!public/demo-videos/*.mp4

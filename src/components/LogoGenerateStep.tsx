@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { Sparkles, ArrowLeft, ArrowRight, RefreshCw, Package, SkipForward, AlertTriangle } from "lucide-react";
 import { Product, LogoResult, LogoVariant, TaskStatus } from "../types";
 import { generateLogoApi } from "../utils/api";
@@ -45,6 +45,14 @@ export default function LogoGenerateStep({
   const [variantCount, setVariantCount] = useState(3);
   const [failedVariants, setFailedVariants] = useState<Set<string>>(new Set());
   const [genLogs, setGenLogs] = useState<string[]>([]);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Cancel in-flight requests on unmount
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
 
   // Retry-able image generation with exponential backoff
   const generateImageWithRetry = async (
@@ -54,7 +62,13 @@ export default function LogoGenerateStep({
   ): Promise<string> => {
     let delay = 3000; // Start with 3s
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      // Check if cancelled
+      if (abortRef.current?.signal.aborted) throw new Error("Cancelled");
+
       try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 120000); // 2min timeout
+
         const response = await fetch("/api/proxy/images", {
           method: "POST",
           headers: {
@@ -67,7 +81,9 @@ export default function LogoGenerateStep({
             n: 1,
             size: "1024x1024",
           }),
+          signal: controller.signal,
         });
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
           const errData = await response.json().catch(() => ({}));
@@ -87,7 +103,8 @@ export default function LogoGenerateStep({
         const imageUrl = data.data?.[0]?.url;
         if (!imageUrl) throw new Error("No image URL in response");
         return imageUrl;
-      } catch (err) {
+      } catch (err: any) {
+        if (err.name === "AbortError") throw new Error("Cancelled");
         if (attempt === maxRetries) throw err;
         addToast?.(createToast("info", `Variant failed (attempt ${attempt}), retrying...`));
         await new Promise((r) => setTimeout(r, delay));
@@ -98,9 +115,12 @@ export default function LogoGenerateStep({
   };
 
   const handleGenerate = async () => {
+    if (abortRef.current) abortRef.current.abort();
+    abortRef.current = new AbortController();
     setFailedVariants(new Set());
     setGenLogs(["🕐 Starting logo generation pipeline..."]);
     onGeneratingChange(true);
+    let localFailedCount = 0;
     try {
       setGenLogs(prev => [...prev, `📡 Requesting ${variantCount} logo prompts from Agnes AI...`]);
       const result = await generateLogoApi(apiKey, product, variantCount);
@@ -136,6 +156,7 @@ export default function LogoGenerateStep({
             v.id === variant.id ? { ...v, status: "failed" as TaskStatus } : v
           ));
           setFailedVariants((prev) => new Set([...prev, variant.id]));
+          localFailedCount++;
           addToast?.(createToast("error", `Logo variant ${i + 1} failed: ${err.message}`));
         }
 
@@ -146,15 +167,14 @@ export default function LogoGenerateStep({
         }
       }
 
-      const failedCount = failedVariants.size;
       setGenLogs(prev => [...prev,
-        failedCount === 0
+        localFailedCount === 0
           ? `🎉 All ${newVariants.length} logos generated successfully!`
-          : `⚠️ ${failedCount}/${newVariants.length} variants failed`
+          : `⚠️ ${localFailedCount}/${newVariants.length} variants failed`
       ]);
-      if (failedCount > 0 && failedCount < newVariants.length) {
-        addToast?.(createToast("warning", `${failedCount}/${newVariants.length} variants failed. Retry individually or reduce batch size.`));
-      } else if (failedCount === newVariants.length) {
+      if (localFailedCount > 0 && localFailedCount < newVariants.length) {
+        addToast?.(createToast("warning", `${localFailedCount}/${newVariants.length} variants failed. Retry individually or reduce batch size.`));
+      } else if (localFailedCount === newVariants.length) {
         addToast?.(createToast("error", "All logo variants failed. Check API key and try again."));
       } else {
         addToast?.(createToast("success", `Generated ${newVariants.length} logos successfully!`));
@@ -164,6 +184,7 @@ export default function LogoGenerateStep({
       setGenLogs(prev => [...prev, `❌ Failed: ${err.message}`]);
       addToast?.(createToast("error", `Logo generation failed: ${err.message}`));
     } finally {
+      abortRef.current = null;
       onGeneratingChange(false);
     }
   };

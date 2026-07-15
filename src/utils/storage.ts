@@ -6,7 +6,7 @@
 import { WorkflowState, AdWorkflowState } from "../types";
 
 const STORAGE_KEY = "agnes_workflow_v2";
-const AD_STORAGE_KEY = "agnes_ad_workflow_v1";
+const AD_STORAGE_KEY = "agnes_ad_workflow_v2";
 const LEGACY_API_KEY = "agnes_api_key_v2";
 
 const DEFAULT_CLIP = {

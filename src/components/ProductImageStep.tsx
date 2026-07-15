@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from "react";
-import { Image as ImageIcon, ArrowLeft, ArrowRight, RefreshCw, Upload, Type } from "lucide-react";
+import { Image as ImageIcon, ArrowLeft, ArrowRight, RefreshCw, Upload, Type, SkipForward } from "lucide-react";
 import { Product, ProductImageResult, MarketingVariant, MarketingScene, TaskStatus } from "../types";
 import { generateProductImageApi, autoSaveImage } from "../utils/api";
 import DragDropZone from "./DragDropZone";
@@ -16,6 +16,7 @@ interface ProductImageStepProps {
   logoImageUrl?: string;
   onBack: () => void;
   onNext: (imageResult: ProductImageResult) => void;
+  onSkip?: () => void;
 }
 
 const SCENE_LABELS: Record<MarketingScene, string> = {
@@ -25,7 +26,7 @@ const SCENE_LABELS: Record<MarketingScene, string> = {
   lifestyle: "Lifestyle",
 };
 
-export default function ProductImageStep({ apiKey, product, logoImageUrl, onBack, onNext }: ProductImageStepProps) {
+export default function ProductImageStep({ apiKey, product, logoImageUrl, onBack, onNext, onSkip }: ProductImageStepProps) {
   const [inputMode, setInputMode] = useState<"upload" | "text" | "prompt">("upload");
   const [sourceImage, setSourceImage] = useState<string | undefined>(logoImageUrl);
   const [textDesc, setTextDesc] = useState(product.description || "");
@@ -258,6 +259,15 @@ export default function ProductImageStep({ apiKey, product, logoImageUrl, onBack
             Next: Generate Video
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
+          {onSkip && (
+            <button
+              onClick={onSkip}
+              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 border border-white/10 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all"
+            >
+              <SkipForward className="w-3.5 h-3.5" />
+              Skip Images
+            </button>
+          )}
         </div>
 
         <div className="grid lg:grid-cols-3 gap-6">

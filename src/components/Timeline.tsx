@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from "react";
-import { Film, ListOrdered, Trash2, ArrowUp, ArrowDown, Sparkles, Volume2, Download, Subtitles, Layers, RefreshCw } from "lucide-react";
+import React, { useState, useCallback } from "react";
+import { Film, ListOrdered, Trash2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Sparkles, Volume2, Download, Subtitles, Layers, RefreshCw, Plus, GripVertical, Upload, ExternalLink } from "lucide-react";
 import { VideoClip, WorkflowState } from "../types";
 import { mergeClipsApi } from "../utils/api";
 
@@ -29,6 +29,9 @@ export default function Timeline({
 }: TimelineProps) {
   const [lang, setLang] = useState<"zh" | "en">("zh");
   const [error, setError] = useState<string | null>(null);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const [editingVideoUrl, setEditingVideoUrl] = useState<Record<string, string>>({});
 
   const handleMoveUp = (index: number, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -59,10 +62,62 @@ export default function Timeline({
     const clipToDelete = clips[index];
     const newClips = clips.filter((_, idx) => idx !== index);
     onSetClips(newClips);
-    
+
     if (state.activeClipId === clipToDelete.id) {
-      onUpdateState({ activeClipId: newClips[0].id });
+      onUpdateState({ activeClipId: newClips[0]?.id || null });
     }
+  };
+
+  // Insert a new blank clip at a specific index
+  const handleInsertAtIndex = (index: number) => {
+    const newId = `clip_${Date.now()}`;
+    const newClip: VideoClip = {
+      id: newId,
+      imagePrompt: "",
+      videoPrompt: "",
+      subtitle: "",
+    };
+    const newClips = [...clips];
+    newClips.splice(index, 0, newClip);
+    onSetClips(newClips);
+    onSelectClip(newId);
+  };
+
+  // Drag and drop reordering
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDragIndex(index);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(index));
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDropIndex(index);
+  };
+
+  const handleDragLeave = () => {
+    setDropIndex(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    if (dragIndex === null || dragIndex === targetIndex) {
+      setDragIndex(null);
+      setDropIndex(null);
+      return;
+    }
+    const newClips = [...clips];
+    const [draggedClip] = newClips.splice(dragIndex, 1);
+    newClips.splice(targetIndex, 0, draggedClip);
+    onSetClips(newClips);
+    setDragIndex(null);
+    setDropIndex(null);
+  };
+
+  const handleDragEnd = () => {
+    setDragIndex(null);
+    setDropIndex(null);
   };
 
   const handleSubtitleChange = (index: number, val: string) => {
@@ -71,10 +126,33 @@ export default function Timeline({
     onSetClips(newClips);
   };
 
+  // Handle manual video URL paste for a specific clip
+  const handleVideoUrlChange = (clipId: string, url: string) => {
+    setEditingVideoUrl(prev => ({ ...prev, [clipId]: url }));
+  };
+
+  const handleApplyVideoUrl = (clipId: string) => {
+    const url = editingVideoUrl[clipId];
+    if (!url?.trim()) return;
+
+    const cleanUrl = url.trim();
+    const cacheBustedUrl = `${cleanUrl}${cleanUrl.includes("?") ? "&" : "?"}t=${Date.now()}`;
+
+    const newClips = clips.map(clip =>
+      clip.id === clipId ? { ...clip, videoUrl: cacheBustedUrl } : clip
+    );
+    onSetClips(newClips);
+    setEditingVideoUrl(prev => {
+      const next = { ...prev };
+      delete next[clipId];
+      return next;
+    });
+  };
+
   const handleCompile = async () => {
     const validClips = clips.filter((c) => c.videoUrl);
     if (validClips.length === 0) {
-      setError("Please generate video files for at least one clip before merging.");
+      setError("Please generate or paste video URLs for at least one clip before merging.");
       return;
     }
 
@@ -101,7 +179,7 @@ export default function Timeline({
         <div>
           <h2 className="text-xl font-semibold text-slate-100">4. Compile Master Movie</h2>
           <p className="text-sm text-slate-400 mt-1">
-            Arrange generated clips, edit local speech/subtitles, and merge them into a single high-quality film.
+            Drag to reorder clips, insert scenes anywhere, or paste video URLs directly.
           </p>
         </div>
         <div className="bg-orange-500/10 text-orange-400 border border-orange-500/20 px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1">
@@ -111,8 +189,8 @@ export default function Timeline({
       </div>
 
       {error && (
-        <div className="p-4 bg-red-950/40 text-red-400 rounded-xl text-sm border border-red-900/30">
-          {error}
+        <div className="p-4 bg-red-950/40 text-red-400 rounded-xl text-sm border border-red-900/30 flex items-center gap-2">
+          <span>{error}</span>
         </div>
       )}
 
@@ -125,88 +203,170 @@ export default function Timeline({
               Clip Timeline ({clips.length} scenes)
             </h3>
             <button
-              onClick={onAddBlankClip}
+              onClick={() => handleInsertAtIndex(clips.length)}
               className="px-3 py-1.5 bg-slate-800/60 hover:bg-slate-750 border border-white/5 text-slate-300 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1"
             >
-              + Add Scene Segment
+              <Plus className="w-3 h-3" />
+              Add Scene at End
             </button>
           </div>
 
-          <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
+          <div className="space-y-1 max-h-[500px] overflow-y-auto pr-2">
             {clips.map((clip, index) => {
               const isActive = state.activeClipId === clip.id;
-              return (
-                <div
-                  key={clip.id}
-                  onClick={() => onSelectClip(clip.id)}
-                  className={`p-4 rounded-xl border transition-all cursor-pointer flex gap-4 items-start ${
-                    isActive
-                      ? "border-orange-500/40 bg-orange-500/10 shadow-sm"
-                      : "border-white/5 bg-[#1a1a1c] hover:border-white/10"
-                  }`}
-                >
-                  {/* Clip Thumbnail Preview */}
-                  <div className="w-24 h-16 bg-[#1f1f22] rounded-lg overflow-hidden border border-white/5 flex-shrink-0 flex items-center justify-center relative">
-                    {clip.imageUrl ? (
-                      <img
-                        src={clip.imageUrl}
-                        alt="Scene thumbnail"
-                        referrerPolicy="no-referrer"
-                        className="w-full h-full object-cover opacity-80"
-                      />
-                    ) : (
-                      <Film className="w-6 h-6 text-slate-500" />
-                    )}
-                    <span className="absolute bottom-1 left-1 bg-black/60 text-white text-[9px] px-1.5 py-0.5 rounded font-mono font-medium">
-                      Scene #{index + 1}
-                    </span>
-                  </div>
+              const isDragging = dragIndex === index;
+              const isDropTarget = dropIndex === index;
 
-                  {/* Clip Info & Direct Subtitle Editing */}
-                  <div className="flex-grow space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-slate-400">
-                        {clip.videoUrl ? "✓ Video Generated" : "⚠ Draft / Needs Rendering"}
-                      </span>
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={(e) => handleMoveUp(index, e)}
-                          disabled={index === 0}
-                          className="p-1 hover:bg-white/5 text-slate-500 hover:text-slate-200 disabled:opacity-30 rounded transition-colors"
-                          title="Move Scene Up"
-                        >
-                          <ArrowUp className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={(e) => handleMoveDown(index, e)}
-                          disabled={index === clips.length - 1}
-                          className="p-1 hover:bg-white/5 text-slate-500 hover:text-slate-200 disabled:opacity-30 rounded transition-colors"
-                          title="Move Scene Down"
-                        >
-                          <ArrowDown className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={(e) => handleDelete(index, e)}
-                          className="p-1 hover:bg-red-950/30 text-slate-500 hover:text-red-400 rounded transition-colors"
-                          title="Delete Scene"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+              return (
+                <div key={clip.id} className="space-y-1">
+                  {/* Insert button between clips */}
+                  {index > 0 && (
+                    <div className="flex items-center justify-center py-0.5">
+                      <button
+                        onClick={() => handleInsertAtIndex(index)}
+                        className="w-full py-0.5 text-[10px] text-slate-600 hover:text-orange-400 hover:bg-orange-500/5 rounded transition-all flex items-center justify-center gap-1 opacity-0 hover:opacity-100 group"
+                        title="Insert scene here"
+                      >
+                        <Plus className="w-3 h-3" />
+                        Insert scene between
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Clip card with drag handle */}
+                  <div
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, index)}
+                    onDragOver={(e) => handleDragOver(e, index)}
+                    onDragLeave={handleDragLeave}
+                    onDrop={(e) => handleDrop(e, index)}
+                    onDragEnd={handleDragEnd}
+                    onClick={() => onSelectClip(clip.id)}
+                    className={`
+                      p-4 rounded-xl border transition-all cursor-pointer flex gap-3 items-start
+                      ${isActive
+                        ? "border-orange-500/40 bg-orange-500/10 shadow-sm"
+                        : isDropTarget
+                        ? "border-orange-300/40 bg-orange-500/5"
+                        : "border-white/5 bg-[#1a1a1c] hover:border-white/10"
+                      }
+                      ${isDragging ? "opacity-50 scale-[0.98]" : ""}
+                    `}
+                  >
+                    {/* Drag handle */}
+                    <div className="flex-shrink-0 flex items-center justify-center w-6 pt-1">
+                      <GripVertical className="w-4 h-4 text-slate-600 hover:text-slate-400 cursor-grab active:cursor-grabbing" />
                     </div>
 
-                    <input
-                      type="text"
-                      className="w-full px-3 py-1.5 bg-[#1f1f22] border border-white/10 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-orange-500/50"
-                      placeholder="Enter subtitle narration line for this scene..."
-                      value={clip.subtitle || ""}
-                      onChange={(e) => handleSubtitleChange(index, e.target.value)}
-                      onClick={(e) => e.stopPropagation()} // Keep focus on input without swapping clip step
-                    />
+                    {/* Clip Thumbnail Preview */}
+                    <div className="w-24 h-16 bg-[#1f1f22] rounded-lg overflow-hidden border border-white/5 flex-shrink-0 flex items-center justify-center relative">
+                      {clip.imageUrl ? (
+                        <img
+                          src={clip.imageUrl}
+                          alt="Scene thumbnail"
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover opacity-80"
+                        />
+                      ) : (
+                        <Film className="w-6 h-6 text-slate-500" />
+                      )}
+                      <span className="absolute bottom-1 left-1 bg-black/60 text-white text-[9px] px-1.5 py-0.5 rounded font-mono font-medium">
+                        Scene #{index + 1}
+                      </span>
+                    </div>
+
+                    {/* Clip Info & Direct Editing */}
+                    <div className="flex-grow space-y-2 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className={`text-xs font-semibold ${
+                          clip.videoUrl ? "text-green-400" : "text-yellow-400"
+                        }`}>
+                          {clip.videoUrl ? "✓ Video Ready" : "⚠ Draft — Needs Video"}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={(e) => handleMoveUp(index, e)}
+                            disabled={index === 0}
+                            className="p-1 hover:bg-white/5 text-slate-500 hover:text-slate-200 disabled:opacity-30 rounded transition-colors"
+                            title="Move Scene Up"
+                          >
+                            <ArrowUp className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={(e) => handleMoveDown(index, e)}
+                            disabled={index === clips.length - 1}
+                            className="p-1 hover:bg-white/5 text-slate-500 hover:text-slate-200 disabled:opacity-30 rounded transition-colors"
+                            title="Move Scene Down"
+                          >
+                            <ArrowDown className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={(e) => handleDelete(index, e)}
+                            className="p-1 hover:bg-red-950/30 text-slate-500 hover:text-red-400 rounded transition-colors"
+                            title="Delete Scene"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Subtitle input */}
+                      <input
+                        type="text"
+                        className="w-full px-3 py-1.5 bg-[#1f1f22] border border-white/10 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-orange-500/50"
+                        placeholder="Subtitle / narration for this scene..."
+                        value={clip.subtitle || ""}
+                        onChange={(e) => handleSubtitleChange(index, e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+
+                      {/* Manual Video URL paste */}
+                      <div className="flex gap-1.5" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="text"
+                          className="flex-1 min-w-0 px-2 py-1 bg-[#1f1f22] border border-white/5 rounded-lg text-[10px] text-slate-300 placeholder:text-slate-600 focus:outline-none focus:border-orange-500/30 font-mono"
+                          placeholder={clip.videoUrl || "Paste video URL here..."}
+                          value={editingVideoUrl[clip.id] || ""}
+                          onChange={(e) => handleVideoUrlChange(clip.id, e.target.value)}
+                        />
+                        {editingVideoUrl[clip.id] && (
+                          <button
+                            onClick={() => handleApplyVideoUrl(clip.id)}
+                            className="px-2 py-1 bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 rounded text-[10px] font-semibold transition-colors flex items-center gap-1"
+                            title="Apply URL as clip video"
+                          >
+                            <Upload className="w-3 h-3" />
+                            Set
+                          </button>
+                        )}
+                        {clip.videoUrl && (
+                          <a
+                            href={clip.videoUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-1 text-slate-500 hover:text-green-400 transition-colors"
+                            title="Open video"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               );
             })}
+
+            {/* Final "Add Scene" at end */}
+            <div className="pt-2">
+              <button
+                onClick={() => handleInsertAtIndex(clips.length)}
+                className="w-full py-2 border border-dashed border-white/10 hover:border-orange-500/30 hover:bg-orange-500/5 rounded-xl text-xs text-slate-500 hover:text-orange-400 transition-all flex items-center justify-center gap-1.5"
+              >
+                <Plus className="w-3 h-3" />
+                Add Scene at End
+              </button>
+            </div>
           </div>
         </div>
 
@@ -248,7 +408,7 @@ export default function Timeline({
 
             <button
               onClick={handleCompile}
-              disabled={state.isMerging}
+              disabled={state.isMerging || clips.filter(c => c.videoUrl).length === 0}
               className="w-full py-3 bg-gradient-to-r from-orange-600 to-red-600 hover:brightness-110 disabled:bg-[#1f1f22] disabled:text-slate-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest shadow-lg shadow-orange-900/40 transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
               {state.isMerging ? (
@@ -263,6 +423,12 @@ export default function Timeline({
                 </>
               )}
             </button>
+
+            {clips.filter(c => c.videoUrl).length === 0 && (
+              <p className="text-[10px] text-slate-500 text-center">
+                Generate or paste video URLs for clips above to enable compilation.
+              </p>
+            )}
           </div>
 
           {/* Master Output Video Player */}

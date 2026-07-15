@@ -3,7 +3,7 @@ import { X, AlertTriangle, CheckCircle2, Info } from "lucide-react";
 
 export interface ToastItem {
   id: string;
-  type: "error" | "success" | "info";
+  type: "error" | "success" | "info" | "warning";
   message: string;
   duration?: number;
 }
@@ -39,12 +39,14 @@ function Toast({ toast, onRemove }: { toast: ToastItem; onRemove: (id: string) =
     error: <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />,
     success: <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />,
     info: <Info className="w-4 h-4 text-blue-400 flex-shrink-0" />,
+    warning: <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />,
   };
 
   const borders = {
     error: "border-red-500/30 bg-red-950/90",
     success: "border-emerald-500/30 bg-emerald-950/90",
     info: "border-blue-500/30 bg-blue-950/90",
+    warning: "border-amber-500/30 bg-amber-950/90",
   };
 
   return (

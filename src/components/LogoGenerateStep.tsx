@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from "react";
-import { Sparkles, ArrowLeft, ArrowRight, RefreshCw, Package } from "lucide-react";
+import { Sparkles, ArrowLeft, ArrowRight, RefreshCw, Package, SkipForward } from "lucide-react";
 import { Product, LogoResult, LogoVariant, TaskStatus } from "../types";
 import { generateLogoApi } from "../utils/api";
 import { autoSaveImage } from "../utils/api";
@@ -22,6 +22,7 @@ interface LogoGenerateStepProps {
   onLogoSelected: (imageUrl: string) => void;
   onBack: () => void;
   onNext: (logoResult: LogoResult) => void;
+  onSkip?: () => void;
   addToast?: (toast: any) => void;
 }
 
@@ -35,6 +36,7 @@ export default function LogoGenerateStep({
   onLogoSelected,
   onBack,
   onNext,
+  onSkip,
   addToast,
 }: LogoGenerateStepProps) {
   const [referenceImage, setReferenceImage] = useState<string | undefined>();
@@ -192,6 +194,15 @@ export default function LogoGenerateStep({
             >
               Use Selected Logo
               <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {onSkip && (
+            <button
+              onClick={onSkip}
+              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 border border-white/10 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all"
+            >
+              <SkipForward className="w-3.5 h-3.5" />
+              Skip Logo
             </button>
           )}
         </div>

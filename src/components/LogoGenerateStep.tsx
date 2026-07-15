@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from "react";
-import { Sparkles, ArrowLeft, ArrowRight, RefreshCw, Package, SkipForward } from "lucide-react";
+import { Sparkles, ArrowLeft, ArrowRight, RefreshCw, Package, SkipForward, AlertTriangle } from "lucide-react";
 import { Product, LogoResult, LogoVariant, TaskStatus } from "../types";
 import { generateLogoApi } from "../utils/api";
 import { autoSaveImage } from "../utils/api";
@@ -43,8 +43,61 @@ export default function LogoGenerateStep({
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [editedPrompts, setEditedPrompts] = useState<Record<string, string>>({});
   const [variantCount, setVariantCount] = useState(3);
+  const [failedVariants, setFailedVariants] = useState<Set<string>>(new Set());
+
+  // Retry-able image generation with exponential backoff
+  const generateImageWithRetry = async (
+    apiKey: string,
+    prompt: string,
+    maxRetries = 3
+  ): Promise<string> => {
+    let delay = 4000; // Start with 4s for large batches
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await fetch("/api/proxy/images", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: "agnes-image-2.1-flash",
+            prompt,
+            n: 1,
+            size: "1024x1024",
+          }),
+        });
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          const msg = errData.error || `HTTP ${response.status}`;
+          // Retry on 503 / busy, throw on everything else
+          const isRetryable = response.status === 503 || msg.includes("busy") || msg.includes("rate");
+          if (isRetryable && attempt < maxRetries) {
+            addToast?.(createToast("info", `API busy, retrying in ${delay / 1000}s... (${attempt}/${maxRetries})`));
+            await new Promise((r) => setTimeout(r, delay));
+            delay *= 1.5; // Exponential backoff
+            continue;
+          }
+          throw new Error(msg);
+        }
+
+        const data = await response.json();
+        const imageUrl = data.data?.[0]?.url;
+        if (!imageUrl) throw new Error("No image URL in response");
+        return imageUrl;
+      } catch (err) {
+        if (attempt === maxRetries) throw err;
+        addToast?.(createToast("info", `Variant failed (attempt ${attempt}), retrying...`));
+        await new Promise((r) => setTimeout(r, delay));
+        delay *= 1.5;
+      }
+    }
+    throw new Error("Max retries exceeded");
+  };
 
   const handleGenerate = async () => {
+    setFailedVariants(new Set());
     onGeneratingChange(true);
     try {
       const result = await generateLogoApi(apiKey, product, variantCount);
@@ -58,53 +111,44 @@ export default function LogoGenerateStep({
 
       onVariantsChange(newVariants);
 
-      // Generate images for each variant in parallel
+      // Generate images for each variant sequentially with adaptive delay
+      const interRequestDelay = variantCount >= 6 ? 5000 : 4000;
       for (let i = 0; i < newVariants.length; i++) {
         const variant = newVariants[i];
         onVariantsChange(newVariants.map((v) => (v.id === variant.id ? { ...v, status: "generating" as TaskStatus } : v)));
 
         try {
-          const response = await fetch("/api/proxy/images", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({
-              model: "agnes-image-2.1-flash",
-              prompt: variant.prompt,
-              n: 1,
-              size: "1024x1024",
-            }),
-          });
-
-          if (!response.ok) throw new Error(`Image generation failed: ${response.status}`);
-
-          const data = await response.json();
-          const imageUrl = data.data?.[0]?.url;
-
-          if (imageUrl) {
-            onVariantsChange(newVariants.map((v) =>
-              v.id === variant.id ? { ...v, imageUrl, status: "completed" as TaskStatus } : v
-            ));
-            // Auto-save to output folder
-            autoSaveImage(imageUrl, `logo_${i + 1}`);
-          } else {
-            throw new Error("No image URL in response");
-          }
-        } catch (err) {
+          const imageUrl = await generateImageWithRetry(apiKey, variant.prompt);
+          onVariantsChange(newVariants.map((v) =>
+            v.id === variant.id ? { ...v, imageUrl, status: "completed" as TaskStatus } : v
+          ));
+          autoSaveImage(imageUrl, `logo_${i + 1}`);
+        } catch (err: any) {
           console.error(`Failed to generate logo variant ${i + 1}:`, err);
           onVariantsChange(newVariants.map((v) =>
             v.id === variant.id ? { ...v, status: "failed" as TaskStatus } : v
           ));
+          setFailedVariants((prev) => new Set([...prev, variant.id]));
+          addToast?.(createToast("error", `Logo variant ${i + 1} failed: ${err.message}`));
         }
-        // Rate limit: wait 3s between requests
+
+        // Adaptive delay: longer for larger batches to avoid 503 overload
         if (i < newVariants.length - 1) {
-          await new Promise((r) => setTimeout(r, 3000));
+          await new Promise((r) => setTimeout(r, interRequestDelay));
         }
+      }
+
+      const failedCount = failedVariants.size;
+      if (failedCount > 0 && failedCount < newVariants.length) {
+        addToast?.(createToast("warning", `${failedCount}/${newVariants.length} variants failed. Retry individually or reduce batch size.`));
+      } else if (failedCount === newVariants.length) {
+        addToast?.(createToast("error", "All logo variants failed. Check API key and try again."));
+      } else {
+        addToast?.(createToast("success", `Generated ${newVariants.length} logos successfully!`));
       }
     } catch (err: any) {
       console.error("Failed to generate logo prompts:", err);
+      addToast?.(createToast("error", `Logo generation failed: ${err.message}`));
     } finally {
       onGeneratingChange(false);
     }
@@ -248,7 +292,8 @@ export default function LogoGenerateStep({
 
             {/* Variant Count */}
             <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-4">
-              <span className="text-xs font-semibold text-slate-300 block mb-3">Variants</span>
+              <span className="text-xs font-semibold text-slate-300 block mb-1">Variants</span>
+              <span className="text-[10px] text-amber-400 block mb-2">⚠ 6–9 variants take longer due to API limits</span>
               <div className="flex gap-2">
                 {[3, 5, 6, 9].map((count) => (
                   <button

@@ -9,6 +9,7 @@ import { Product, ProductImageResult, MarketingVariant, MarketingScene, TaskStat
 import { generateProductImageApi, autoSaveImage } from "../utils/api";
 import DragDropZone from "./DragDropZone";
 import ImageVariantGrid from "./ImageVariantGrid";
+import { createToast } from "./Toast";
 
 interface ProductImageStepProps {
   apiKey: string;
@@ -17,6 +18,7 @@ interface ProductImageStepProps {
   onBack: () => void;
   onNext: (imageResult: ProductImageResult) => void;
   onSkip?: () => void;
+  addToast?: (toast: ReturnType<typeof createToast>) => void;
 }
 
 const SCENE_LABELS: Record<MarketingScene, string> = {

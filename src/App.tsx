@@ -5,8 +5,8 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Sparkles, Image as ImageIcon, Film, Layers, CheckCircle2, AlertCircle, Megaphone } from "lucide-react";
-import { VideoClip, AppStep, WorkflowState, Product, LogoResult, ProductImageResult, AdVideoResult, AdWorkflowStep } from "./types";
+import { Sparkles, Image as ImageIcon, Film, Layers, CheckCircle2, AlertCircle, Megaphone, SkipForward, Eye } from "lucide-react";
+import { VideoClip, AppStep, WorkflowState, Product, LogoResult, LogoVariant, ProductImageResult, AdVideoResult, AdWorkflowStep } from "./types";
 import Sidebar from "./components/Sidebar";
 import PromptOptimizeStep from "./components/PromptOptimizeStep";
 import ImageGenerateStep from "./components/ImageGenerateStep";
@@ -68,7 +68,12 @@ function getInitialState(): WorkflowState {
 
 function getInitialAdState() {
   if (typeof window === "undefined") {
-    return { isAdMode: true, adStep: "product" as AdWorkflowStep, adProduct: defaultProduct, logoResult: null, logoVariants: [], isLogoGenerating: false, imageResult: null, videoResult: null, outputFolder: null };
+    return {
+      isAdMode: true, adStep: "product" as AdWorkflowStep, adProduct: defaultProduct,
+      logoResult: null, logoVariants: [], isLogoGenerating: false,
+      skippedLogo: false, skippedProductImage: false,
+      selectedLogoUrl: null, imageResult: null, videoResult: null, outputFolder: null
+    };
   }
   const saved = loadAdWorkflow();
   return {
@@ -78,6 +83,8 @@ function getInitialAdState() {
     logoResult: saved?.logoResult ?? null,
     logoVariants: saved?.logoVariants ?? [],
     isLogoGenerating: saved?.isLogoGenerating ?? false,
+    skippedLogo: saved?.skippedLogo ?? false,
+    skippedProductImage: saved?.skippedProductImage ?? false,
     selectedLogoUrl: saved?.selectedLogoUrl ?? null,
     imageResult: saved?.imageResult ?? null,
     videoResult: saved?.videoResult ?? null,
@@ -89,7 +96,7 @@ export default function App() {
   const [state, setState] = useState<WorkflowState>(getInitialState);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Ad workflow state (loaded from localStorage)
+  // Ad workflow state
   const initialAd = getInitialAdState();
   const [isAdMode, setIsAdMode] = useState(initialAd.isAdMode);
   const [adStep, setAdStep] = useState<AdWorkflowStep>(initialAd.adStep);
@@ -97,6 +104,8 @@ export default function App() {
   const [logoResult, setLogoResult] = useState<LogoResult | null>(initialAd.logoResult);
   const [logoVariants, setLogoVariants] = useState<LogoVariant[]>(initialAd.logoVariants);
   const [isLogoGenerating, setIsLogoGenerating] = useState(initialAd.isLogoGenerating);
+  const [skippedLogo, setSkippedLogo] = useState(initialAd.skippedLogo);
+  const [skippedProductImage, setSkippedProductImage] = useState(initialAd.skippedProductImage);
   const [selectedLogoUrl, setSelectedLogoUrl] = useState<string | null>(initialAd.selectedLogoUrl);
   const [imageResult, setImageResult] = useState<ProductImageResult | null>(initialAd.imageResult);
   const [videoResult, setVideoResult] = useState<AdVideoResult | null>(initialAd.videoResult);
@@ -118,12 +127,12 @@ export default function App() {
   useEffect(() => {
     if (adSaveTimerRef.current) clearTimeout(adSaveTimerRef.current);
     adSaveTimerRef.current = setTimeout(() => {
-      saveAdWorkflow({ isAdMode, adStep, adProduct, logoResult, logoVariants, isLogoGenerating, selectedLogoUrl, imageResult, videoResult, outputFolder });
+      saveAdWorkflow({ isAdMode, adStep, adProduct, logoResult, logoVariants, isLogoGenerating, skippedLogo, skippedProductImage, selectedLogoUrl, imageResult, videoResult, outputFolder });
     }, 500);
     return () => {
       if (adSaveTimerRef.current) clearTimeout(adSaveTimerRef.current);
     };
-  }, [isAdMode, adStep, adProduct, logoResult, logoVariants, isLogoGenerating, selectedLogoUrl, imageResult, videoResult, outputFolder]);
+  }, [isAdMode, adStep, adProduct, logoResult, logoVariants, isLogoGenerating, skippedLogo, skippedProductImage, selectedLogoUrl, imageResult, videoResult, outputFolder]);
 
   // Save legacy API key for backward compatibility
   useEffect(() => {
@@ -178,10 +187,45 @@ export default function App() {
 
   // Ad workflow handlers
   const handleAdNext = (step: AdWorkflowStep) => {
-    // Create output folder when moving from product to logo
     if (adStep === "product" && step === "logo" && adProduct.name) {
       createOutputFolder(adProduct.name).then(setOutputFolder);
     }
+    setAdStep(step);
+  };
+
+  // Handle step bar clicks with dependency validation
+  const handleAdStepClick = (step: AdWorkflowStep) => {
+    const steps: AdWorkflowStep[] = ["product", "logo", "product-image", "ad-video"];
+    const targetIdx = steps.indexOf(step);
+    const currentIdx = steps.indexOf(adStep);
+
+    // Going backward always allowed
+    if (targetIdx <= currentIdx) {
+      setAdStep(step);
+      return;
+    }
+
+    // Going forward: validate dependencies
+    if (step === "logo") {
+      if (!adProduct.name.trim()) {
+        addToast(createToast("warning", "Enter product name first"));
+        return;
+      }
+    } else if (step === "product-image") {
+      if (!adProduct.name.trim()) {
+        addToast(createToast("warning", "Enter product info first"));
+        return;
+      }
+      if (!skippedLogo && !logoResult && logoVariants.length === 0) {
+        addToast(createToast("info", "Consider generating a logo first, or skip this step"));
+      }
+    } else if (step === "ad-video") {
+      if (!adProduct.name.trim()) {
+        addToast(createToast("warning", "Enter product info first"));
+        return;
+      }
+    }
+
     setAdStep(step);
   };
 
@@ -193,8 +237,25 @@ export default function App() {
     }
   };
 
+  const handleSkipLogo = () => {
+    setSkippedLogo(true);
+    setLogoResult(null);
+    setLogoVariants([]);
+    setSelectedLogoUrl(null);
+    addToast(createToast("info", "Logo step skipped — will use generic placeholder"));
+    setAdStep("product-image");
+  };
+
+  const handleSkipProductImage = () => {
+    setSkippedProductImage(true);
+    setImageResult(null);
+    addToast(createToast("info", "Product image step skipped — proceed with logo reference"));
+    setAdStep("ad-video");
+  };
+
   const handleLogoComplete = (result: LogoResult) => {
     setLogoResult(result);
+    setSkippedLogo(false);
     handleAdNext("product-image");
   };
 
@@ -204,6 +265,7 @@ export default function App() {
 
   const handleImageComplete = (result: ProductImageResult) => {
     setImageResult(result);
+    setSkippedProductImage(false);
     handleAdNext("ad-video");
   };
 
@@ -216,6 +278,9 @@ export default function App() {
     setAdStep("product");
     setAdProduct(defaultProduct);
     setLogoResult(null);
+    setLogoVariants([]);
+    setSkippedLogo(false);
+    setSkippedProductImage(false);
     setImageResult(null);
     setVideoResult(null);
   };
@@ -243,10 +308,10 @@ export default function App() {
     },
   ];
 
-  const adStepItems: { id: AdWorkflowStep; label: string; icon: React.ReactNode }[] = [
+  const adStepItems: { id: AdWorkflowStep; label: string; icon: React.ReactNode; skipLabel?: string; onSkip?: () => void }[] = [
     { id: "product", label: "Product Info", icon: <Megaphone className="w-4 h-4" /> },
-    { id: "logo", label: "Logo Design", icon: <Sparkles className="w-4 h-4" /> },
-    { id: "product-image", label: "Product Images", icon: <ImageIcon className="w-4 h-4" /> },
+    { id: "logo", label: "Logo Design", icon: <Sparkles className="w-4 h-4" />, skipLabel: "Skip Logo", onSkip: handleSkipLogo },
+    { id: "product-image", label: "Product Images", icon: <ImageIcon className="w-4 h-4" />, skipLabel: "Skip Images", onSkip: handleSkipProductImage },
     { id: "ad-video", label: "Ad Video", icon: <Film className="w-4 h-4" /> },
   ];
 
@@ -317,30 +382,48 @@ export default function App() {
             /* Ad Mode */
             <>
               {/* Ad Step Indicator */}
-              <div className="bg-[#161618] rounded-2xl border border-white/5 p-3.5 flex flex-wrap items-center justify-between gap-2">
+              <div className="bg-[#161618] rounded-2xl border border-white/5 p-3.5 flex flex-col sm:flex-row flex-wrap items-start sm:items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-1.5">
                   {adStepItems.map((step, idx) => {
                     const isActive = adStep === step.id;
-                    const isDone = adStepItems.findIndex((s) => s.id === adStep) > idx;
+                    const currentIdx = adStepItems.findIndex((s) => s.id === adStep);
+                    const isDone = idx < currentIdx;
+                    const isSkipped = (step.id === "logo" && skippedLogo) || (step.id === "product-image" && skippedProductImage);
                     return (
                       <React.Fragment key={step.id}>
                         {idx > 0 && <div className="w-4 h-[1px] bg-white/5" />}
-                        <button
-                          onClick={() => setAdStep(step.id)}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-                            isActive
-                              ? "bg-gradient-to-r from-orange-600 to-red-600 text-white font-bold shadow-md shadow-orange-950/40"
-                              : isDone
-                              ? "text-green-400 hover:bg-white/5"
-                              : "text-slate-400 hover:bg-white/5 hover:text-slate-100"
-                          }`}
-                        >
-                          {isDone ? <CheckCircle2 className="w-4 h-4" /> : step.icon}
-                          <span>{step.label}</span>
-                        </button>
+                        <div className="relative group">
+                          <button
+                            onClick={() => handleAdStepClick(step.id)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                              isActive
+                                ? "bg-gradient-to-r from-orange-600 to-red-600 text-white font-bold shadow-md shadow-orange-950/40"
+                                : isDone || isSkipped
+                                ? "text-green-400 hover:bg-white/5"
+                                : "text-slate-400 hover:bg-white/5 hover:text-slate-100"
+                            }`}
+                          >
+                            {isDone ? <CheckCircle2 className="w-4 h-4" /> : isSkipped ? <SkipForward className="w-4 h-4" /> : step.icon}
+                            <span>{step.label}</span>
+                          </button>
+                          {/* Skip button tooltip on hover */}
+                          {!isActive && step.onSkip && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); step.onSkip?.(); }}
+                              className="absolute -top-1 -right-1 w-4 h-4 bg-orange-500/80 hover:bg-orange-500 text-white rounded-full text-[9px] font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                              title={step.skipLabel}
+                            >
+                              <SkipForward className="w-2.5 h-2.5" />
+                            </button>
+                          )}
+                        </div>
                       </React.Fragment>
                     );
                   })}
+                </div>
+                <div className="flex items-center gap-2 text-[10px] text-slate-500">
+                  <Eye className="w-3 h-3" />
+                  Click any step to navigate freely
                 </div>
               </div>
 
@@ -387,6 +470,7 @@ export default function App() {
                             onLogoSelected={handleLogoSelected}
                             onBack={handleAdBack}
                             onNext={handleLogoComplete}
+                            onSkip={handleSkipLogo}
                           />
                         )}
 
@@ -397,6 +481,7 @@ export default function App() {
                             logoImageUrl={selectedLogoUrl || logoResult?.variants.find(v => v.status === "completed")?.imageUrl || ""}
                             onBack={handleAdBack}
                             onNext={handleImageComplete}
+                            onSkip={handleSkipProductImage}
                           />
                         )}
 
@@ -441,6 +526,10 @@ export default function App() {
                       </React.Fragment>
                     );
                   })}
+                </div>
+                <div className="flex items-center gap-2 text-[10px] text-slate-500">
+                  <Eye className="w-3 h-3" />
+                  Click any step to jump
                 </div>
               </div>
 

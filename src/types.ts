@@ -117,6 +117,8 @@ export interface AdWorkflowState {
   logoResult: LogoResult | null;
   logoVariants: LogoVariant[];
   isLogoGenerating: boolean;
+  skippedLogo?: boolean;
+  skippedProductImage?: boolean;
   selectedLogoUrl: string | null;
   imageResult: ProductImageResult | null;
   videoResult: AdVideoResult | null;

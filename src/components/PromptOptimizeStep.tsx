@@ -14,6 +14,7 @@ import {
   Eye,
   Layers,
   Wand2,
+  SkipForward,
 } from "lucide-react";
 import { VideoClip, CharacterAnchor } from "../types";
 import {
@@ -73,6 +74,11 @@ export default function PromptOptimizeStep({
   const [anchorHistory, setAnchorHistory] = useState<CharacterAnchor[]>([]);
 
   // --- Pipeline: Optimize → Extract → Generate Anchor ---
+  const handleSkipPipeline = () => {
+    setPipelineState("ready");
+    setGenLogs(["📝 Manual mode — edit prompts directly below"]);
+  };
+
   const handleRunPipeline = async () => {
     if (!rawPrompt.trim()) {
       setError("Please write an idea prompt first.");
@@ -472,6 +478,15 @@ export default function PromptOptimizeStep({
               Regenerate Character Anchor
             </button>
           )}
+
+          {/* Skip Pipeline Button */}
+          <button
+            onClick={handleSkipPipeline}
+            className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 border border-white/10 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all"
+          >
+            <SkipForward className="w-3.5 h-3.5" />
+            Skip Pipeline — Edit Prompts Directly
+          </button>
         </div>
 
         {/* Right Column: Results & Preview */}

@@ -3,12 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from "react";
-import { Image as ImageIcon, ArrowLeft, ArrowRight, RefreshCw, Upload, Type } from "lucide-react";
+import React, { useState, useRef, useEffect } from "react";
+import { Image as ImageIcon, ArrowLeft, ArrowRight, RefreshCw, Upload, Type, SkipForward, AlertTriangle } from "lucide-react";
 import { Product, ProductImageResult, MarketingVariant, MarketingScene, TaskStatus } from "../types";
 import { generateProductImageApi, autoSaveImage } from "../utils/api";
 import DragDropZone from "./DragDropZone";
 import ImageVariantGrid from "./ImageVariantGrid";
+import { createToast } from "./Toast";
 
 interface ProductImageStepProps {
   apiKey: string;
@@ -16,6 +17,8 @@ interface ProductImageStepProps {
   logoImageUrl?: string;
   onBack: () => void;
   onNext: (imageResult: ProductImageResult) => void;
+  onSkip?: () => void;
+  addToast?: (toast: ReturnType<typeof createToast>) => void;
 }
 
 const SCENE_LABELS: Record<MarketingScene, string> = {
@@ -25,22 +28,104 @@ const SCENE_LABELS: Record<MarketingScene, string> = {
   lifestyle: "Lifestyle",
 };
 
-export default function ProductImageStep({ apiKey, product, logoImageUrl, onBack, onNext }: ProductImageStepProps) {
-  const [inputMode, setInputMode] = useState<"upload" | "text">("upload");
+export default function ProductImageStep({ apiKey, product, logoImageUrl, onBack, onNext, onSkip, addToast }: ProductImageStepProps) {
+  const [inputMode, setInputMode] = useState<"upload" | "text" | "prompt">("upload");
   const [sourceImage, setSourceImage] = useState<string | undefined>(logoImageUrl);
   const [textDesc, setTextDesc] = useState(product.description || "");
+  const [manualPrompt, setManualPrompt] = useState("");
   const [variants, setVariants] = useState<MarketingVariant[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [selectedId, setSelectedId] = useState<string | undefined>();
+  const [genLogs, setGenLogs] = useState<string[]>([]);
+  const abortRef = useRef<AbortController | null>(null);
 
-  const canGenerate = inputMode === "upload" ? !!sourceImage : textDesc.trim().length > 0;
+  // Cancel in-flight requests on unmount
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
+
+  const canGenerate = inputMode === "prompt"
+    ? manualPrompt.trim().length > 0
+    : inputMode === "upload" ? !!sourceImage : textDesc.trim().length > 0;
 
   const handleGenerate = async () => {
     if (!canGenerate) return;
 
+    if (abortRef.current) abortRef.current.abort();
+    abortRef.current = new AbortController();
     console.log("[ProductImageStep] Starting generation...", { inputMode, textDesc, sourceImage });
     setIsGenerating(true);
+    setGenLogs(["🕐 Starting product image generation..."]);
+    let localFailedCount = 0;
+
+    // Manual prompt mode: generate single image directly
+    if (inputMode === "prompt") {
+      setGenLogs(prev => [...prev, "📡 Generating image from manual prompt..."]);
+      try {
+        const body: Record<string, any> = {
+          model: "agnes-image-2.1-flash",
+          prompt: manualPrompt,
+          n: 1,
+          size: "1024x1024",
+        };
+        if (sourceImage) {
+          body.image = sourceImage;
+          setGenLogs(prev => [...prev, "🖼️ Using reference image + prompt..."]);
+        }
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 120000);
+        const response = await fetch("/api/proxy/images", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) throw new Error(`Image generation failed: ${response.status}`);
+
+        const data = await response.json();
+        const imageUrl = data.data?.[0]?.url;
+
+        if (imageUrl) {
+          setGenLogs(prev => [...prev, "✅ Image generated successfully"]);
+          const newVariant: MarketingVariant = {
+            id: `img_${Date.now()}_0`,
+            prompt: manualPrompt,
+            imageUrl,
+            status: "completed",
+            scene: "ecommerce" as MarketingScene,
+          };
+          setVariants([newVariant]);
+          autoSaveImage(imageUrl, "manual_prompt");
+          addToast?.(createToast("success", "Image generated successfully"));
+        } else {
+          throw new Error("No image URL in response");
+        }
+      } catch (err: any) {
+        if (err.name === "AbortError") {
+          setGenLogs(prev => [...prev, "❌ Request cancelled"]);
+        } else {
+          setGenLogs(prev => [...prev, `❌ Failed: ${err.message}`]);
+          addToast?.(createToast("error", `Image failed: ${err.message}`));
+        }
+        console.error("Failed to generate image:", err);
+      } finally {
+        abortRef.current = null;
+        setIsGenerating(false);
+      }
+      return;
+    }
+
+    // AI auto-generate mode: get 3 prompts then generate 3 images
     try {
+      setGenLogs(prev => [...prev, "📡 Requesting marketing image prompts from Agnes AI..."]);
       const result = await generateProductImageApi(
         apiKey,
         product,
@@ -49,6 +134,7 @@ export default function ProductImageStep({ apiKey, product, logoImageUrl, onBack
       );
 
       console.log("[ProductImageStep] Got prompts:", result);
+      setGenLogs(prev => [...prev, `✅ Received ${result.variants.length} prompts, starting image generation...`]);
       const scenes: MarketingScene[] = ["ecommerce", "social", "poster"];
       const newVariants: MarketingVariant[] = result.variants.map((prompt, i) => ({
         id: `img_${Date.now()}_${i}`,
@@ -62,6 +148,7 @@ export default function ProductImageStep({ apiKey, product, logoImageUrl, onBack
       // Generate images for each variant
       for (let i = 0; i < newVariants.length; i++) {
         const variant = newVariants[i];
+        setGenLogs(prev => [...prev, `🎨 Generating image ${i + 1}/${newVariants.length} (${variant.scene})...`]);
         setVariants((prev) =>
           prev.map((v) => (v.id === variant.id ? { ...v, status: "generating" } : v))
         );
@@ -79,6 +166,8 @@ export default function ProductImageStep({ apiKey, product, logoImageUrl, onBack
             body.image = sourceImage;
           }
 
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 120000);
           const response = await fetch("/api/proxy/images", {
             method: "POST",
             headers: {
@@ -86,7 +175,9 @@ export default function ProductImageStep({ apiKey, product, logoImageUrl, onBack
               "Authorization": `Bearer ${apiKey}`,
             },
             body: JSON.stringify(body),
+            signal: controller.signal,
           });
+          clearTimeout(timeoutId);
 
           if (!response.ok) throw new Error(`Image generation failed: ${response.status}`);
 
@@ -99,19 +190,46 @@ export default function ProductImageStep({ apiKey, product, logoImageUrl, onBack
                 v.id === variant.id ? { ...v, imageUrl, status: "completed" } : v
               )
             );
+            setGenLogs(prev => [...prev, `✅ Image ${i + 1} done`]);
             // Auto-save to output folder
             const sceneLabel = variant.scene || "marketing";
             autoSaveImage(imageUrl, `${sceneLabel}_${i + 1}`);
           }
-        } catch (err) {
+        } catch (err: any) {
+          if (err.name !== "AbortError") {
+            setGenLogs(prev => [...prev, `❌ Image ${i + 1} failed: ${err.message}`]);
+            localFailedCount++;
+            addToast?.(createToast("error", `Image ${i + 1} failed: ${err.message}`));
+          }
           setVariants((prev) =>
             prev.map((v) => (v.id === variant.id ? { ...v, status: "failed" } : v))
           );
         }
+        // Rate limit: wait 3s between requests
+        if (i < newVariants.length - 1) {
+          setGenLogs(prev => [...prev, `⏳ Waiting 3s before next variant...`]);
+          await new Promise((r) => setTimeout(r, 3000));
+        }
+      }
+
+      setGenLogs(prev => [...prev,
+        localFailedCount === 0
+          ? `🎉 All ${newVariants.length} images generated successfully!`
+          : `⚠️ ${localFailedCount}/${newVariants.length} images failed`
+      ]);
+      if (localFailedCount === 0) {
+        addToast?.(createToast("success", `Generated ${newVariants.length} marketing images!`));
+      } else if (localFailedCount === newVariants.length) {
+        addToast?.(createToast("error", "All images failed. Check API key and try again."));
+      } else {
+        addToast?.(createToast("warning", `${localFailedCount}/${newVariants.length} images failed.`));
       }
     } catch (err: any) {
       console.error("Failed to generate product images:", err);
+      setGenLogs(prev => [...prev, `❌ Failed: ${err.message}`]);
+      addToast?.(createToast("error", `Generation failed: ${err.message}`));
     } finally {
+      abortRef.current = null;
       setIsGenerating(false);
     }
   };
@@ -203,6 +321,15 @@ export default function ProductImageStep({ apiKey, product, logoImageUrl, onBack
             Next: Generate Video
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
+          {onSkip && (
+            <button
+              onClick={onSkip}
+              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 border border-white/10 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all"
+            >
+              <SkipForward className="w-3.5 h-3.5" />
+              Skip Images
+            </button>
+          )}
         </div>
 
         <div className="grid lg:grid-cols-3 gap-6">
@@ -221,7 +348,7 @@ export default function ProductImageStep({ apiKey, product, logoImageUrl, onBack
                   }`}
                 >
                   <Upload className="w-3.5 h-3.5" />
-                  Upload Image
+                  Upload
                 </button>
                 <button
                   onClick={() => setInputMode("text")}
@@ -232,7 +359,18 @@ export default function ProductImageStep({ apiKey, product, logoImageUrl, onBack
                   }`}
                 >
                   <Type className="w-3.5 h-3.5" />
-                  Text Description
+                  AI Generate
+                </button>
+                <button
+                  onClick={() => setInputMode("prompt")}
+                  className={`flex-1 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                    inputMode === "prompt"
+                      ? "bg-purple-600/20 text-purple-300 border border-purple-500/30"
+                      : "bg-[#1f1f22] text-slate-400 border border-white/5 hover:bg-white/5"
+                  }`}
+                >
+                  <ImageIcon className="w-3.5 h-3.5" />
+                  Manual Prompt
                 </button>
               </div>
             </div>
@@ -263,28 +401,103 @@ export default function ProductImageStep({ apiKey, product, logoImageUrl, onBack
               </div>
             )}
 
+            {/* Manual Prompt Mode */}
+            {inputMode === "prompt" && (
+              <>
+                <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-4">
+                  <span className="text-xs font-semibold text-slate-300 block mb-3">Reference Image (optional)</span>
+                  <DragDropZone
+                    onImageDrop={setSourceImage}
+                    currentImage={sourceImage}
+                    onClear={() => setSourceImage(undefined)}
+                  />
+                </div>
+                <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-4">
+                  <span className="text-xs font-semibold text-slate-300 block mb-3">Your Prompt</span>
+                  <textarea
+                    value={manualPrompt}
+                    onChange={(e) => setManualPrompt(e.target.value)}
+                    rows={4}
+                    placeholder="e.g. A woman wearing this dress walking on a beach at sunset, cinematic lighting, 4K..."
+                    className="w-full px-3 py-2 bg-[#1f1f22] border border-white/10 rounded-xl text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-purple-500/50 resize-none"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1">With reference image: AI uses it as base, your prompt guides the transformation. Without: pure text-to-image.</p>
+                </div>
+              </>
+            )}
+
             {/* Generate Button */}
             <button
               onClick={handleGenerate}
               disabled={!canGenerate || isGenerating}
               className="w-full py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:brightness-110 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all"
             >
-              {isGenerating ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <ImageIcon className="w-4 h-4" />
-                  Generate Marketing Images
-                </>
-              )}
+                  {isGenerating ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      Generating...
+                    </>
+                  ) : inputMode === "prompt" ? (
+                    <>
+                      <ImageIcon className="w-4 h-4" />
+                      Generate Image
+                    </>
+                  ) : (
+                    <>
+                      <ImageIcon className="w-4 h-4" />
+                      Generate Marketing Images
+                    </>
+                  )}
             </button>
           </div>
 
           {/* Right: Variants */}
           <div className="lg:col-span-2 space-y-4">
+            {/* Live Generation Progress Panel */}
+            {isGenerating && (
+              <div className="bg-[#1a1a1c] border border-purple-500/30 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-purple-400 flex items-center gap-1.5">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    Generating images...
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-mono">
+                    {variants.length > 0
+                      ? `${variants.filter(v => v.status === "completed").length}/${variants.length} done`
+                      : `Prompting AI...`}
+                  </span>
+                </div>
+
+                {/* Progress bar */}
+                {variants.length > 0 && (
+                  <div className="w-full h-1.5 bg-[#1f1f22] rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-purple-500 to-blue-500 transition-all duration-500"
+                      style={{ width: `${(variants.filter(v => v.status === "completed").length / variants.length) * 100}%` }}
+                    />
+                  </div>
+                )}
+
+                {/* Live logs */}
+                <div className="bg-[#131315] border border-white/5 rounded-lg p-3 font-mono text-[10px] space-y-1 max-h-40 overflow-y-auto">
+                  {genLogs.map((log, i) => {
+                    const isLast = i === genLogs.length - 1;
+                    const isError = log.includes("❌");
+                    const isSuccess = log.includes("✅") || log.includes("🎉");
+                    return (
+                      <div
+                        key={i}
+                        className={`flex items-start gap-2 ${isError ? "text-red-400" : isLast ? "text-purple-400 animate-pulse" : isSuccess ? "text-green-400" : "text-slate-400"}`}
+                      >
+                        <span className="text-[9px] text-slate-600 select-none">[{i + 1}]</span>
+                        <span>{log}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {variants.length > 0 ? (
               <>
                 <ImageVariantGrid
@@ -340,8 +553,8 @@ export default function ProductImageStep({ apiKey, product, logoImageUrl, onBack
             ) : (
               <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-12 text-center">
                 <ImageIcon className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-                <p className="text-sm text-slate-400">Upload product image or enter description, click "Generate Marketing Images"</p>
-                <p className="text-xs text-slate-500 mt-1">AI will generate E-commerce, Social Media, and Brand Poster variants</p>
+                <p className="text-sm text-slate-400">Upload image, describe product, or enter manual prompt to generate images</p>
+                <p className="text-xs text-slate-500 mt-1">AI generates E-commerce, Social Media, and Brand Poster variants</p>
               </div>
             )}
           </div>

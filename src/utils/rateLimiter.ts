@@ -63,4 +63,4 @@ export class RateLimiter {
   }
 }
 
-export const rateLimiter = new RateLimiter();
+export const rateLimiter = new RateLimiter(4, 4);

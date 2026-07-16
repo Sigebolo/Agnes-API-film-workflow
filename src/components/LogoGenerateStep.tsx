@@ -88,11 +88,12 @@ export default function LogoGenerateStep({
         if (!response.ok) {
           const errData = await response.json().catch(() => ({}));
           const msg = errData.error || `HTTP ${response.status}`;
-          // Retry on 503 / busy, throw on everything else
-          const isRetryable = response.status === 503 || msg.includes("busy") || msg.includes("rate");
+          // Retry on 503 / busy / rate limit, throw on everything else
+          const isRetryable = response.status === 503 || response.status === 429 || msg.includes("busy") || msg.includes("rate") || msg.includes("limit");
           if (isRetryable && attempt < maxRetries) {
-            addToast?.(createToast("info", `API busy, retrying in ${delay / 1000}s... (${attempt}/${maxRetries})`));
-            await new Promise((r) => setTimeout(r, delay));
+            const retryDelay = response.status === 429 ? 60000 : delay; // Wait 60s on rate limit
+            addToast?.(createToast("info", `API busy, retrying in ${retryDelay / 1000}s... (${attempt}/${maxRetries})`));
+            await new Promise((r) => setTimeout(r, retryDelay));
             delay *= 1.5; // Exponential backoff
             continue;
           }
@@ -138,7 +139,7 @@ export default function LogoGenerateStep({
       onVariantsChange([...currentVariants]);
 
       // Generate images for each variant sequentially with delay
-      const interRequestDelay = 4000;
+      const interRequestDelay = 15000; // 15s between requests to avoid rate limit
       for (let i = 0; i < currentVariants.length; i++) {
         const variant = currentVariants[i];
         setGenLogs(prev => [...prev, `🎨 Generating variant ${i + 1}/${currentVariants.length}...`]);

@@ -7,6 +7,7 @@ import React, { useState, useEffect } from "react";
 import { Key, Megaphone, HelpCircle, AlertCircle, Sparkles, Folder, ChevronRight, Settings, Check, Save, Package, Image as ImageIcon, Film, Layers, Clock, RefreshCw, ExternalLink, Trash2 } from "lucide-react";
 import { WorkflowState } from "../types";
 import { listTasks, saveTask, deleteTask, queryTaskStatus, TaskRecord } from "../utils/api";
+import { t } from "../utils/locale";
 
 interface SidebarProps {
   apiKey: string;
@@ -78,10 +79,10 @@ export default function Sidebar({
   };
 
   const adSteps = [
-    { id: "product", label: "Product Info", icon: Package, desc: "Enter product details" },
-    { id: "logo", label: "Logo Design", icon: Sparkles, desc: "AI generates logo variants" },
-    { id: "product-image", label: "Product Images", icon: ImageIcon, desc: "Marketing image variants" },
-    { id: "ad-video", label: "Ad Video", icon: Film, desc: "15s product ad video" },
+    { id: "product", label: t('sidebar.step.product'), icon: Package, desc: t('sidebar.step.product.desc') },
+    { id: "logo", label: t('sidebar.step.logo'), icon: Sparkles, desc: t('sidebar.step.logo.desc') },
+    { id: "product-image", label: t('sidebar.step.images'), icon: ImageIcon, desc: t('sidebar.step.images.desc') },
+    { id: "ad-video", label: t('sidebar.step.video'), icon: Film, desc: t('sidebar.step.video.desc') },
   ];
 
   const currentStepIdx = adSteps.findIndex((s) => s.id === adStep);
@@ -95,8 +96,8 @@ export default function Sidebar({
             <Megaphone className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-base font-bold tracking-tight text-white">Agnes Ad Studio</h1>
-            <span className="text-[10px] text-slate-500 font-mono tracking-wider font-semibold uppercase">AI Ad Video Production</span>
+            <h1 className="text-base font-bold tracking-tight text-white">{t('sidebar.title')}</h1>
+            <span className="text-[10px] text-slate-500 font-mono tracking-wider font-semibold uppercase">{t('sidebar.subtitle')}</span>
           </div>
         </div>
 
@@ -105,7 +106,7 @@ export default function Sidebar({
           <div className="flex items-center justify-between">
             <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
               <Key className="w-3.5 h-3.5 text-orange-500" />
-              Agnes API Key
+              {t('sidebar.apiKey.label')}
             </label>
             <a
               href="https://platform.agnes-ai.com/"
@@ -113,14 +114,14 @@ export default function Sidebar({
               rel="noopener noreferrer"
               className="text-[10px] text-orange-400 hover:underline font-bold"
             >
-              Get Key
+              {t('sidebar.apiKey.get')}
             </a>
           </div>
           <div className="flex gap-1.5">
             <input
               type="password"
               className="flex-1 min-w-0 px-3 py-2 bg-[#1f1f22] border border-white/10 focus:border-orange-500/50 rounded-xl text-xs text-white placeholder:text-slate-600 focus:outline-none transition-colors"
-              placeholder="Enter Agnes API Key..."
+              placeholder={t('sidebar.apiKey.placeholder')}
               value={apiKey}
               onChange={(e) => onChangeApiKey(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") handleSave(); }}
@@ -137,23 +138,23 @@ export default function Sidebar({
               }`}
             >
               {showSaved ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
-              {showSaved ? "Saved" : "Save"}
+              {showSaved ? t('sidebar.apiKey.saved') : t('sidebar.apiKey.save')}
             </button>
           </div>
           {!apiKey ? (
             <p className="text-[10px] text-orange-400/80 flex items-center gap-1 leading-relaxed">
               <AlertCircle className="w-3 h-3 flex-shrink-0" />
-              API Key required. Stored in local storage only.
+              {t('sidebar.apiKey.required')}
             </p>
           ) : isDemoKey ? (
             <p className="text-[10px] text-yellow-400/80 flex items-center gap-1 leading-relaxed">
               <AlertCircle className="w-3 h-3 flex-shrink-0" />
-              Demo mode — simulated outputs. Enter a real key.
+              {t('sidebar.apiKey.demo')}
             </p>
           ) : (
             <p className="text-[10px] text-green-400/80 flex items-center gap-1 leading-relaxed">
               <Check className="w-3 h-3 flex-shrink-0" />
-              Real API key connected.
+              {t('sidebar.apiKey.connected')}
             </p>
           )}
         </div>
@@ -164,10 +165,10 @@ export default function Sidebar({
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
                 <Layers className="w-3.5 h-3.5 text-orange-500" />
-                Workflow Progress
+                {t('sidebar.workflow.title')}
               </h3>
               <span className="text-[10px] font-mono text-orange-400 bg-orange-500/10 border border-orange-500/20 px-1.5 py-0.5 rounded">
-                Step {currentStepIdx + 1}/{adSteps.length}
+                {t('sidebar.step.step')} {currentStepIdx + 1}/{adSteps.length}
               </span>
             </div>
 
@@ -207,13 +208,13 @@ export default function Sidebar({
         <div className="bg-[#1f1f22]/50 rounded-xl border border-white/5 p-3.5 space-y-2.5">
           <h4 className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
             <Sparkles className="w-3.5 h-3.5 text-orange-500 animate-pulse" />
-            Quick Tips
+            {t('sidebar.tips.title')}
           </h4>
           <ul className="text-[10px] text-slate-500 list-disc pl-4 space-y-1">
-            <li>Drag generated images to prompt area for iterative refinement</li>
-            <li>AI auto-generates optimized prompts from product description</li>
-            <li>Video prompts follow professional product photography rules</li>
-            <li>15s ad videos with character dialogue support</li>
+            <li>{t('sidebar.tips.drag')}</li>
+            <li>{t('sidebar.tips.auto')}</li>
+            <li>{t('sidebar.tips.follow')}</li>
+            <li>{t('sidebar.tips.support')}</li>
           </ul>
         </div>
 
@@ -222,7 +223,7 @@ export default function Sidebar({
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
               <Clock className="w-3.5 h-3.5 text-orange-500" />
-              Task History
+              {t('sidebar.tasks.title')}
             </h3>
             <button
               onClick={async () => {
@@ -232,7 +233,7 @@ export default function Sidebar({
                 setRefreshing(null);
               }}
               className="text-[10px] text-slate-500 hover:text-orange-400 transition-colors cursor-pointer"
-              title="Refresh task list"
+              title={t('sidebar.refresh')}
             >
               <RefreshCw className={`w-3 h-3 ${refreshing === "all" ? "animate-spin" : ""}`} />
             </button>
@@ -243,7 +244,7 @@ export default function Sidebar({
             <input
               type="text"
               className="flex-1 min-w-0 px-2 py-1.5 bg-[#1f1f22] border border-white/10 focus:border-orange-500/50 rounded-lg text-[10px] text-white font-mono placeholder:text-slate-600 focus:outline-none"
-              placeholder="Paste task ID to track..."
+              placeholder={t('sidebar.tasks.placeholder')}
               id="manual-task-input"
               onKeyDown={async (e) => {
                 if (e.key === "Enter") {
@@ -256,7 +257,7 @@ export default function Sidebar({
                   const newTask: TaskRecord = {
                     id: taskId,
                     type: "video",
-                    prompt: "Manual entry",
+                    prompt: t('sidebar.tasks.manual'),
                     status: "queued",
                     createdAt: Date.now(),
                     updatedAt: Date.now(),
@@ -284,16 +285,16 @@ export default function Sidebar({
                 setRefreshing(null);
               }}
               className="px-2 py-1.5 bg-orange-500/20 border border-orange-500/30 text-orange-400 rounded-lg text-[10px] font-semibold hover:bg-orange-500/30 transition-colors cursor-pointer flex items-center gap-1"
-              title="Query all pending tasks from Agnes API"
+              title={t('sidebar.tasks.queryAll')}
             >
               <RefreshCw className={`w-3 h-3 ${refreshing === "query-all" ? "animate-spin" : ""}`} />
-              Query All
+              {t('sidebar.tasks.queryAll')}
             </button>
           </div>
 
           {/* Task list */}
           {tasks.length === 0 ? (
-            <p className="text-[10px] text-slate-600 text-center py-2">No tasks yet. Generate a video to start tracking.</p>
+            <p className="text-[10px] text-slate-600 text-center py-2">{t('sidebar.tasks.empty')}</p>
           ) : (
             <div className="space-y-1 max-h-60 overflow-y-auto">
               {tasks.map((task) => (
@@ -325,7 +326,7 @@ export default function Sidebar({
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-green-400 hover:text-green-300 transition-colors"
-                          title="Open video"
+                          title={t('sidebar.tasks.openVideo')}
                         >
                           <ExternalLink className="w-3 h-3" />
                         </a>
@@ -346,7 +347,7 @@ export default function Sidebar({
                           setRefreshing(null);
                         }}
                         className="text-slate-500 hover:text-orange-400 transition-colors cursor-pointer"
-                        title="Refresh status"
+                        title={t('sidebar.tasks.refreshStatus')}
                       >
                         <RefreshCw className={`w-3 h-3 ${refreshing === task.id ? "animate-spin" : ""}`} />
                       </button>
@@ -356,7 +357,7 @@ export default function Sidebar({
                           setTasks(prev => prev.filter(t => t.id !== task.id));
                         }}
                         className="text-slate-500 hover:text-red-400 transition-colors cursor-pointer"
-                        title="Delete"
+                        title={t('sidebar.tasks.delete')}
                       >
                         <Trash2 className="w-3 h-3" />
                       </button>
@@ -373,7 +374,7 @@ export default function Sidebar({
                       task.status === "expired" ? "text-slate-500" :
                       task.status === "submitting" ? "text-orange-400" : "text-yellow-500"
                     }`}>
-                      {task.status === "submitting" ? "submitting..." : task.status}
+                      {task.status === "submitting" ? t('sidebar.tasks.submitting') : task.status}
                     </span>
                   </div>
                 </div>
@@ -390,7 +391,7 @@ export default function Sidebar({
           target="_blank"
           rel="noopener noreferrer"
           className="pb-1 text-[10px] text-slate-500 hover:text-orange-400 transition-colors flex items-center gap-1 truncate"
-          title="Open output folder"
+          title={t('sidebar.outputFolder')}
         >
           <Folder className="w-3 h-3 flex-shrink-0" />
           <span className="truncate">{outputFolder}</span>
@@ -401,7 +402,7 @@ export default function Sidebar({
       <div className="pt-4 border-t border-white/5 flex items-center justify-between text-[10px] text-slate-500 font-mono">
         <div className="flex items-center gap-1.5">
           <Settings className="w-3.5 h-3.5 text-orange-500/70" />
-          <span>Ad Studio Ready</span>
+          <span>{t('sidebar.footer.ready')}</span>
         </div>
         <span>Agnes SDK v2.0</span>
       </div>

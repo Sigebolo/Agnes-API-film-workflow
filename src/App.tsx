@@ -19,6 +19,7 @@ import AdVideoStep from "./components/AdVideoStep";
 import { ToastContainer, ToastItem, createToast } from "./components/Toast";
 import { loadWorkflow, saveWorkflow, saveAdWorkflow, loadAdWorkflow } from "./utils/storage";
 import { createOutputFolder } from "./utils/api";
+import { t } from "./utils/locale";
 
 const LOCAL_STORAGE_KEY_API = "agnes_api_key_v2";
 
@@ -102,8 +103,16 @@ export default function App() {
   const [adStep, setAdStep] = useState<AdWorkflowStep>(initialAd.adStep);
   const [adProduct, setAdProduct] = useState<Product>(initialAd.adProduct);
   const [logoResult, setLogoResult] = useState<LogoResult | null>(initialAd.logoResult);
-  const [logoVariants, setLogoVariants] = useState<LogoVariant[]>(initialAd.logoVariants);
-  const [isLogoGenerating, setIsLogoGenerating] = useState(initialAd.isLogoGenerating);
+  const [logoVariants, setLogoVariants] = useState<LogoVariant[]>(() => {
+    // Don't restore mid-flight "generating" cards as stuck spinners after refresh
+    return (initialAd.logoVariants || []).map((v) =>
+      v.status === "generating" || v.status === "polling"
+        ? { ...v, status: v.imageUrl ? "completed" : "idle" }
+        : v
+    );
+  });
+  // Never restore isLogoGenerating=true across reloads — no in-flight request survives refresh
+  const [isLogoGenerating, setIsLogoGenerating] = useState(false);
   const [skippedLogo, setSkippedLogo] = useState(initialAd.skippedLogo);
   const [skippedProductImage, setSkippedProductImage] = useState(initialAd.skippedProductImage);
   const [selectedLogoUrl, setSelectedLogoUrl] = useState<string | null>(initialAd.selectedLogoUrl);
@@ -166,24 +175,73 @@ export default function App() {
     });
   };
 
+  const activeClip = state.clips.find((c) => c.id === state.activeClipId) || state.clips[0];
+
   const handleAddBlankClip = () => {
     const newId = `clip_${Date.now()}`;
+    // Prefer previous clip's last frame as reference for continuity
+    const prevClip =
+      state.clips.find((c) => c.id === state.activeClipId) ||
+      state.clips[state.clips.length - 1];
+    const chainRef = prevClip?.lastFrameUrl || undefined;
     const newClip: VideoClip = {
       id: newId,
-      imagePrompt: "",
-      videoPrompt: "",
+      imagePrompt: prevClip?.imagePrompt || "",
+      videoPrompt: prevClip?.videoPrompt || "",
+      imageUrl: chainRef,
       subtitle: "",
+      chainIndex: chainRef != null ? (prevClip?.chainIndex ?? 0) + 1 : undefined,
+      duration: prevClip?.duration || 15,
     };
 
     setState((prev) => ({
       ...prev,
       clips: [...prev.clips, newClip],
       activeClipId: newId,
-      currentStep: "prompt",
+      currentStep: chainRef ? "video" : "prompt",
     }));
   };
 
-  const activeClip = state.clips.find((c) => c.id === state.activeClipId) || state.clips[0];
+  /** Continue video chain: new clip uses previous segment's last frame as image-to-video reference */
+  const handleContinueChain = (lastFrameUrl: string) => {
+    const prev =
+      state.clips.find((c) => c.id === state.activeClipId) || activeClip;
+    const newId = `clip_${Date.now()}`;
+    const nextIndex = (prev?.chainIndex ?? 0) + 1;
+    const newClip: VideoClip = {
+      id: newId,
+      imagePrompt: prev?.imagePrompt || "",
+      // Keep motion prompt editable — user can refine per segment
+      videoPrompt: prev?.videoPrompt
+        ? `Continue seamlessly from previous shot. ${prev.videoPrompt}`
+        : "Continue seamlessly from the previous shot, same character and environment, smooth motion",
+      imageUrl: lastFrameUrl,
+      subtitle: "",
+      chainIndex: nextIndex,
+      duration: prev?.duration || 15,
+    };
+
+    setState((s) => ({
+      ...s,
+      clips: [...s.clips, newClip],
+      activeClipId: newId,
+      currentStep: "video",
+    }));
+    addToast(
+      createToast(
+        "success",
+        `Chain segment #${nextIndex + 1} ready — last frame is the reference image`
+      )
+    );
+  };
+
+  const handleSaveToTimeline = () => {
+    if (activeClip) {
+      handleUpdateClip(activeClip.id, { subtitle: activeClip.subtitle });
+    }
+    addToast(createToast("success", "Clip saved on timeline — open Timeline to merge segments"));
+    updateState({ currentStep: "timeline" });
+  };
 
   // Ad workflow handlers
   const handleAdNext = (step: AdWorkflowStep) => {
@@ -288,31 +346,31 @@ export default function App() {
   const stepItems: { id: AppStep; label: string; icon: React.ReactNode }[] = [
     {
       id: "prompt",
-      label: "Prompt & Anchor",
+      label: t('step.prompt'),
       icon: <Sparkles className="w-4 h-4" />,
     },
     {
       id: "image",
-      label: "Generate Image",
+      label: t('step.image'),
       icon: <ImageIcon className="w-4 h-4" />,
     },
     {
       id: "video",
-      label: "Create Video",
+      label: t('step.video'),
       icon: <Film className="w-4 h-4" />,
     },
     {
       id: "timeline",
-      label: "Timeline Merge",
+      label: t('step.timeline'),
       icon: <Layers className="w-4 h-4" />,
     },
   ];
 
   const adStepItems: { id: AdWorkflowStep; label: string; icon: React.ReactNode; skipLabel?: string; onSkip?: () => void }[] = [
-    { id: "product", label: "Product Info", icon: <Megaphone className="w-4 h-4" /> },
-    { id: "logo", label: "Logo Design", icon: <Sparkles className="w-4 h-4" />, skipLabel: "Skip Logo", onSkip: handleSkipLogo },
-    { id: "product-image", label: "Product Images", icon: <ImageIcon className="w-4 h-4" />, skipLabel: "Skip Images", onSkip: handleSkipProductImage },
-    { id: "ad-video", label: "Ad Video", icon: <Film className="w-4 h-4" /> },
+    { id: "product", label: t('step.product'), icon: <Megaphone className="w-4 h-4" /> },
+    { id: "logo", label: t('step.logo'), icon: <Sparkles className="w-4 h-4" />, skipLabel: t('step.skipLogo'), onSkip: handleSkipLogo },
+    { id: "product-image", label: t('step.productImage'), icon: <ImageIcon className="w-4 h-4" />, skipLabel: t('step.skipImages'), onSkip: handleSkipProductImage },
+    { id: "ad-video", label: t('step.adVideo'), icon: <Film className="w-4 h-4" /> },
   ];
 
   return (
@@ -323,10 +381,10 @@ export default function App() {
           <div className="w-9 h-9 bg-gradient-to-br from-orange-500 to-red-600 rounded-xl flex items-center justify-center font-bold text-white shadow-lg shadow-orange-900/20">A</div>
           <div>
             <h1 className="text-xl font-bold tracking-tight text-slate-100 flex items-center gap-2">
-              Agnes AI <span className="text-orange-500">Ad Studio</span>
+              Agnes AI <span className="text-orange-500">{t('app.title')}</span>
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              AI Ad Video Production · Product Logo · Marketing Images · 15s Ad Videos
+              {t('app.subtitle')}
             </p>
           </div>
         </div>
@@ -345,7 +403,7 @@ export default function App() {
             }`}
           >
             <Megaphone className="w-4 h-4" />
-            {isAdMode ? "Ad Mode" : "Creative Mode"}
+            {isAdMode ? t('app.mode.ad') : t('app.mode.creative')}
           </button>
         </div>
 
@@ -423,7 +481,7 @@ export default function App() {
                 </div>
                 <div className="flex items-center gap-2 text-[10px] text-slate-500">
                   <Eye className="w-3 h-3" />
-                  Click any step to navigate freely
+                  {t('step.click.navigate')}
                 </div>
               </div>
 
@@ -443,9 +501,9 @@ export default function App() {
                           <AlertCircle className="w-6 h-6" />
                         </div>
                         <div className="space-y-1">
-                          <h3 className="text-base font-semibold text-slate-200">API Key Required</h3>
+                          <h3 className="text-base font-semibold text-slate-200">{t('app.api.required.title')}</h3>
                           <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                            Please enter your Agnes API Key in the left configuration panel.
+                            {t('app.api.required.desc')}
                           </p>
                         </div>
                       </div>
@@ -471,6 +529,7 @@ export default function App() {
                             onBack={handleAdBack}
                             onNext={handleLogoComplete}
                             onSkip={handleSkipLogo}
+                            addToast={addToast}
                           />
                         )}
 
@@ -482,6 +541,7 @@ export default function App() {
                             onBack={handleAdBack}
                             onNext={handleImageComplete}
                             onSkip={handleSkipProductImage}
+                            addToast={addToast}
                           />
                         )}
 
@@ -529,7 +589,7 @@ export default function App() {
                 </div>
                 <div className="flex items-center gap-2 text-[10px] text-slate-500">
                   <Eye className="w-3 h-3" />
-                  Click any step to jump
+                  点击步骤自由跳转
                 </div>
               </div>
 
@@ -588,8 +648,10 @@ export default function App() {
                             activeClip={activeClip}
                             onUpdateClip={(updates) => handleUpdateClip(activeClip.id, updates)}
                             onPrev={() => updateState({ currentStep: "image" })}
-                            onSaveToTimeline={() => {}}
+                            onSaveToTimeline={handleSaveToTimeline}
                             onGoToTimeline={() => updateState({ currentStep: "timeline" })}
+                            onContinueChain={handleContinueChain}
+                            onNewVideo={handleAddBlankClip}
                             onToast={addToast}
                           />
                         )}

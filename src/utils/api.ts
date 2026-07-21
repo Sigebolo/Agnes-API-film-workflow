@@ -200,21 +200,33 @@ export async function generateCharacterViewApi(
   return imageUrl;
 }
 
+/** Agnes Video V2: num_frames <= 441 and must be 8n+1. Max ~18s at 24fps. */
+export function framesForDuration(durationSeconds: number, frameRate = 24): number {
+  const cappedSeconds = Math.min(Math.max(durationSeconds, 1), 18);
+  const rawFrames = Math.round(cappedSeconds * frameRate);
+  let num_frames = Math.round((rawFrames - 1) / 8) * 8 + 1;
+  if (num_frames > 441) num_frames = 441; // 8*55+1
+  if (num_frames < 9) num_frames = 9;
+  return num_frames;
+}
+
 export async function createVideoTaskApi(
   apiKey: string,
   prompt: string,
   imageUrl?: string,
   durationSeconds = 15
-): Promise<{ video_id?: string; task_id?: string }> {
+): Promise<{ video_id?: string; task_id?: string; poll_id?: string; poll_mode?: string }> {
   await rateLimiter.acquire();
-  // num_frames must satisfy 8n+1 (model constraint). At 24fps: frames = duration×24, rounded to nearest 8n+1.
-  const rawFrames = Math.round(durationSeconds * 24);
-  const num_frames = Math.round((rawFrames - 1) / 8) * 8 + 1;
+  // num_frames must satisfy 8n+1 and <= 441 (model constraint)
+  const num_frames = framesForDuration(durationSeconds, 24);
   const body: Record<string, any> = {
     model: "agnes-video-v2.0",
     prompt,
     num_frames,
     frame_rate: 24,
+    // Prefer standard landscape unless caller overrides elsewhere
+    width: 1152,
+    height: 768,
   };
 
   if (imageUrl) {
@@ -236,9 +248,15 @@ export async function createVideoTaskApi(
   }
 
   const data = await response.json();
+  // Prefer video_id for polling (never prefer bare task_id when video_id exists)
+  const video_id = data.video_id;
+  const task_id = data.task_id || data.id;
+  const poll_id = data.poll_id || video_id || task_id;
   return {
-    video_id: data.video_id,
-    task_id: data.task_id,
+    video_id,
+    task_id,
+    poll_id,
+    poll_mode: data.poll_mode || (video_id ? "video_id" : "task_id"),
   };
 }
 
@@ -560,4 +578,33 @@ export function autoSaveVideo(videoUrl: string, name: string): void {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ videoUrl, name }),
   }).catch(() => {});
+}
+
+// ==========================================
+// Video chain helpers (last-frame continuity)
+// ==========================================
+
+export interface LastFrameResult {
+  frameUrl: string;
+  publicUrl?: string;
+  localUrl?: string;
+}
+
+/**
+ * Extract the last frame of a video for use as the next segment's reference image.
+ * Returns a public URL when possible (required by Agnes image-to-video).
+ */
+export async function extractLastFrameApi(videoUrl: string): Promise<LastFrameResult> {
+  const response = await fetch("/api/video/last-frame", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ videoUrl }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to extract last frame: ${response.status}`);
+  }
+
+  return response.json();
 }

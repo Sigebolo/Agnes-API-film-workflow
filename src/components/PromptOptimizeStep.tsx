@@ -525,7 +525,7 @@ export default function PromptOptimizeStep({
                   onChange={(e) =>
                     onUpdateClip({ imagePrompt: e.target.value })
                   }
-                  placeholder="AI-optimized image prompt will appear here..."
+                  placeholder="AI 优化后的图片提示词将显示在此处..."
                 />
               </div>
               <div>
@@ -538,7 +538,7 @@ export default function PromptOptimizeStep({
                   onChange={(e) =>
                     onUpdateClip({ videoPrompt: e.target.value })
                   }
-                  placeholder="AI-optimized video prompt will appear here..."
+                  placeholder="AI 优化后的视频提示词将显示在此处..."
                 />
               </div>
             </div>

@@ -22,10 +22,13 @@ if not exist "node_modules" (
     call npm install
 )
 
-:: Build if needed
-if not exist "dist\server.cjs" (
-    echo [INFO] Building project...
-    call npm run build
+:: Always rebuild so source fixes (worktree/src) take effect
+echo [INFO] Building project (fresh)...
+call npm run build
+if %errorlevel% neq 0 (
+    echo [ERROR] Build failed.
+    pause
+    exit /b 1
 )
 
 :: Kill existing node processes on port 3000

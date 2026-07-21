@@ -193,7 +193,7 @@ export default function ImageGenerateStep({
             </h4>
             <textarea
               className="w-full p-3 bg-[#1a1a1c] border border-white/5 rounded-xl text-xs text-slate-200 leading-relaxed h-28 focus:outline-none focus:border-orange-500/40 resize-none"
-              placeholder="Enter or modify your image prompt here..."
+              placeholder="输入或修改图片提示词..."
               value={activeClip.imagePrompt || ""}
               onChange={(e) => onUpdateClip({ imagePrompt: e.target.value })}
             />
@@ -229,7 +229,7 @@ export default function ImageGenerateStep({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-orange-500 animate-pulse" />
-                <span className="text-xs font-semibold text-slate-200 uppercase tracking-wider">Image-to-Image</span>
+                <span className="text-xs font-semibold text-slate-200 uppercase tracking-wider">图生图</span>
               </div>
               <label className="relative inline-flex items-center cursor-pointer select-none">
                 <input
@@ -246,7 +246,7 @@ export default function ImageGenerateStep({
               <div className="space-y-4 pt-2 border-t border-white/5">
                 {/* Source Selection */}
                 <div className="space-y-1.5">
-                  <label className="block text-[11px] text-slate-400">Reference Image Source</label>
+                  <label className="block text-[11px] text-slate-400">参考图片来源</label>
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
@@ -280,7 +280,7 @@ export default function ImageGenerateStep({
                     <label className="block text-[11px] text-slate-400">Custom Image URL</label>
                     <input
                       type="text"
-                      placeholder="Paste your source image URL..."
+                      placeholder="粘贴源图片 URL..."
                       className="w-full px-3 py-2 text-xs bg-[#1f1f22] border border-white/5 rounded-lg text-slate-200 focus:outline-none focus:border-orange-500/40"
                       value={customImg2ImgUrl}
                       onChange={(e) => setCustomImg2ImgUrl(e.target.value)}
@@ -316,7 +316,7 @@ export default function ImageGenerateStep({
                 {/* Style Strength slider */}
                 <div className="space-y-1.5">
                   <div className="flex justify-between items-center text-[11px]">
-                    <span className="text-slate-400">Prompt influence (Strength)</span>
+                    <span className="text-slate-400">提示词影响度（强度）</span>
                     <span className="text-orange-400 font-mono font-bold">{img2ImgStrength.toFixed(2)}</span>
                   </div>
                   <input
@@ -329,9 +329,9 @@ export default function ImageGenerateStep({
                     onChange={(e) => setImg2ImgStrength(parseFloat(e.target.value))}
                   />
                   <div className="flex justify-between text-[9px] text-slate-500 font-mono">
-                    <span>Keep Style (0.1)</span>
-                    <span>Balanced (0.5)</span>
-                    <span>More Change (0.9)</span>
+                    <span>保持风格 (0.1)</span>
+                    <span>平衡 (0.5)</span>
+                    <span>更多变化 (0.9)</span>
                   </div>
                 </div>
               </div>
@@ -367,7 +367,7 @@ export default function ImageGenerateStep({
 
           <div className="relative flex py-2 items-center">
             <div className="flex-grow border-t border-white/5"></div>
-            <span className="flex-shrink mx-4 text-xs text-slate-500 uppercase">Or Import Image</span>
+            <span className="flex-shrink mx-4 text-xs text-slate-500 uppercase">或导入图片</span>
             <div className="flex-grow border-t border-white/5"></div>
           </div>
 
@@ -407,7 +407,7 @@ export default function ImageGenerateStep({
                   <span className="w-2 h-2 rounded-full bg-orange-500 animate-ping"></span>
                   JOB DISPATCHED: {activeJobId}
                 </div>
-                <h3 className="text-base font-semibold text-slate-100">Synthesizing High-Detail Frame</h3>
+                <h3 className="text-base font-semibold text-slate-100">正在合成高细节帧</h3>
                 <p className="text-xs text-slate-400 leading-relaxed">
                   Agnes's neural engine is assembling volumetric lighting, surface reflections, and composition details. This typically takes 3-8 seconds.
                 </p>
@@ -416,8 +416,8 @@ export default function ImageGenerateStep({
               {/* Interactive Pipeline Logs */}
               <div className="w-full max-w-sm bg-[#1a1a1c] border border-white/5 rounded-xl p-4 text-left font-mono text-[10px] space-y-1.5 shadow-inner max-h-48 overflow-y-auto">
                 <div className="text-xs font-semibold text-slate-400 border-b border-white/5 pb-1 mb-2 flex items-center justify-between">
-                  <span>PIPELINE LOGS</span>
-                  <span className="text-[10px] text-orange-500 animate-pulse">LIVE TRACKING</span>
+                  <span>流程日志</span>
+                  <span className="text-[10px] text-orange-500 animate-pulse">实时追踪</span>
                 </div>
                 {generationLogs.map((log, idx) => {
                   const isLast = idx === generationLogs.length - 1;
@@ -458,8 +458,8 @@ export default function ImageGenerateStep({
               {/* Interactive Pipeline Logs (Failed State) */}
               <div className="w-full max-w-sm bg-[#1a1a1c] border border-white/5 rounded-xl p-4 text-left font-mono text-[10px] space-y-1.5 shadow-inner max-h-48 overflow-y-auto">
                 <div className="text-xs font-semibold text-slate-400 border-b border-white/5 pb-1 mb-2 flex items-center justify-between">
-                  <span>PIPELINE LOGS (ABORTED)</span>
-                  <span className="text-[10px] text-red-500 font-bold">FAILED</span>
+                  <span>流程日志（已中止）</span>
+                  <span className="text-[10px] text-red-500 font-bold">失败</span>
                 </div>
                 {generationLogs.map((log, idx) => {
                   const isError = log.includes("❌") || log.includes("⚠️") || log.includes("Error:");
@@ -494,7 +494,7 @@ export default function ImageGenerateStep({
                       <div className="w-10 h-10 rounded-full border-4 border-orange-500/20 border-t-orange-500 animate-spin"></div>
                       <ImageIcon className="w-4 h-4 text-orange-500 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-pulse" />
                     </div>
-                    <p className="text-xs text-slate-400">Loading keyframe into browser canvas...</p>
+                    <p className="text-xs text-slate-400">正在加载关键帧到浏览器画布...</p>
                   </div>
                 )}
                 <img
@@ -565,7 +565,7 @@ export default function ImageGenerateStep({
                 <ImageIcon className="w-6 h-6" />
               </div>
               <div className="space-y-1">
-                <p className="text-sm font-semibold text-slate-300 font-sans">No keyframe generated yet</p>
+                <p className="text-sm font-semibold text-slate-300 font-sans">尚未生成关键帧</p>
                 <p className="text-xs text-slate-500 max-w-sm">
                   Generate your custom image, import an existing URL, or drag an image from history.
                 </p>

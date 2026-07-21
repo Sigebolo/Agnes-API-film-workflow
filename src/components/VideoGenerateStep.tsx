@@ -542,7 +542,7 @@ export default function VideoGenerateStep({
                 <option value={15}>15s</option>
                 <option value={18}>18s (max)</option>
               </select>
-              <p className="text-[9px] text-slate-500">Model max ~18s. Use Continue Chain for longer.</p>
+              <p className="text-[9px] text-slate-500">模型最长约18秒。使用链式扩展可生成更长视频。</p>
             </div>
           </div>
 
@@ -567,7 +567,7 @@ export default function VideoGenerateStep({
           {activeClip.videoUrl && (
             <div className="p-3 bg-[#1a1a1c] border border-white/5 rounded-xl space-y-2">
               <p className="text-[10px] text-slate-400 leading-relaxed">
-                <span className="text-orange-400 font-semibold">Video Chain:</span> after a clip finishes,
+                <span className="text-orange-400 font-semibold">视频链式扩展：</span>片段完成后，
                 we extract its last frame and use it as the next segment&apos;s reference image — so you can
                 stitch past the single-clip duration limit while keeping the subject consistent.
               </p>
@@ -579,7 +579,7 @@ export default function VideoGenerateStep({
                     referrerPolicy="no-referrer"
                     className="w-14 h-14 object-cover rounded-lg border border-white/10"
                   />
-                  <span className="text-[10px] text-slate-500">Last frame ready for next segment</span>
+                  <span className="text-[10px] text-slate-500">最后一帧已就绪，可用于下一段</span>
                 </div>
               )}
               {isExtractingFrame && (
@@ -605,7 +605,7 @@ export default function VideoGenerateStep({
                   <span className="w-2 h-2 rounded-full bg-orange-500 animate-ping"></span>
                   JOB ID: {activeJobId || "CREATING..."}
                 </div>
-                <h3 className="text-base font-semibold text-slate-100">Generating Cinematic Motion</h3>
+                <h3 className="text-base font-semibold text-slate-100">正在生成电影级动态画面</h3>
 
                 <div className="inline-block bg-[#1a1a1c] border border-white/5 px-3 py-1.5 rounded-lg text-xs font-medium text-orange-400 font-mono shadow-inner animate-pulse">
                   ⚡ {pollStatus || "Awaiting task ID..."}
@@ -613,7 +613,7 @@ export default function VideoGenerateStep({
                 {videoProgress > 0 && (
                   <div className="w-full max-w-xs mx-auto">
                     <div className="flex justify-between text-[10px] text-slate-400 mb-1">
-                      <span>Progress</span>
+                      <span>进度</span>
                       <span className="text-orange-400 font-bold">{videoProgress}%</span>
                     </div>
                     <div className="w-full h-2 bg-[#1f1f22] rounded-full overflow-hidden">
@@ -632,8 +632,8 @@ export default function VideoGenerateStep({
 
               <div className="w-full max-w-sm bg-[#1a1a1c] border border-white/5 rounded-xl p-4 text-left font-mono text-[10px] space-y-1.5 shadow-inner max-h-48 overflow-y-auto">
                 <div className="text-xs font-semibold text-slate-400 border-b border-white/5 pb-1 mb-2 flex items-center justify-between">
-                  <span>RENDER PIPELINE LOGS</span>
-                  <span className="text-[10px] text-orange-500 animate-pulse">LIVE TRACKING</span>
+                  <span>渲染流程日志</span>
+                  <span className="text-[10px] text-orange-500 animate-pulse">实时追踪</span>
                 </div>
                 {videoLogs.map((log, idx) => {
                   const isLast = idx === videoLogs.length - 1;
@@ -678,8 +678,8 @@ export default function VideoGenerateStep({
 
               <div className="w-full max-w-sm bg-[#1a1a1c] border border-white/5 rounded-xl p-4 text-left font-mono text-[10px] space-y-1.5 shadow-inner max-h-48 overflow-y-auto">
                 <div className="text-xs font-semibold text-slate-400 border-b border-white/5 pb-1 mb-2 flex items-center justify-between">
-                  <span>RENDER PIPELINE LOGS (ABORTED)</span>
-                  <span className="text-[10px] text-red-500 font-bold">FAILED</span>
+                  <span>渲染流程日志（已中止）</span>
+                  <span className="text-[10px] text-red-500 font-bold">失败</span>
                 </div>
                 {videoLogs.map((log, idx) => {
                   const isError = log.includes("❌") || log.includes("⚠️") || log.includes("Error:");
@@ -714,7 +714,7 @@ export default function VideoGenerateStep({
                       <div className="w-10 h-10 rounded-full border-4 border-orange-500/20 border-t-orange-500 animate-spin"></div>
                       <Film className="w-4 h-4 text-orange-500 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-pulse" />
                     </div>
-                    <p className="text-xs text-slate-400">Loading movie clip into browser player...</p>
+                    <p className="text-xs text-slate-400">正在加载影片到浏览器播放器...</p>
                   </div>
                 )}
                 <video
@@ -780,11 +780,11 @@ export default function VideoGenerateStep({
                 <Film className="w-6 h-6" />
               </div>
               <div className="space-y-1">
-                <p className="text-sm font-semibold text-slate-300">No movie rendered yet</p>
+                <p className="text-sm font-semibold text-slate-300">尚未渲染影片</p>
                 <p className="text-xs text-slate-500 max-w-sm">
                   Once you generate the base image keyframe above, click &quot;Render Movie Clip&quot; to generate
                   high-fidelity camera dynamics. After it finishes, use{" "}
-                  <span className="text-blue-400">Continue Chain</span> to extend beyond one clip.
+                  使用「链式扩展」超越单片段限制。
                 </p>
               </div>
             </div>

@@ -369,10 +369,12 @@ app.post("/api/proxy/images", async (req, res) => {
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
+    // Image generation often exceeds 60s; align with client 180s budget
+    const timeoutId = setTimeout(() => controller.abort(), 180000);
 
     const requestBody = JSON.stringify(req.body);
     console.log(`[Image API] → POST https://apihub.agnes-ai.com/v1/images/generations`);
+    console.log(`[Image API] body keys: ${Object.keys(req.body || {}).join(",")}`);
 
     const response = await fetch("https://apihub.agnes-ai.com/v1/images/generations", {
       method: "POST",
@@ -386,28 +388,46 @@ app.post("/api/proxy/images", async (req, res) => {
     clearTimeout(timeoutId);
 
     const responseText = await response.text();
+    console.log(`[Image API] ← ${response.status} (${responseText.length} bytes)`);
 
     if (!response.ok) {
       let errorMsg = `Agnes API error: ${response.status}`;
       try {
         const errData = JSON.parse(responseText);
-        errorMsg = errData.error?.message || errData.message || errorMsg;
-      } catch {}
+        errorMsg = errData.error?.message || errData.error || errData.message || errorMsg;
+        if (typeof errorMsg !== "string") errorMsg = JSON.stringify(errorMsg);
+      } catch {
+        if (responseText) errorMsg = `${errorMsg}: ${responseText.slice(0, 300)}`;
+      }
       return res.status(response.status).json({ error: errorMsg });
     }
 
     try {
       const data = JSON.parse(responseText);
-      if (data.data?.[0]?.url) {
+      const url =
+        data.data?.[0]?.url ||
+        data.url ||
+        data.image_url ||
+        data.images?.[0]?.url;
+      if (url) {
+        // Normalize to expected shape for clients
+        if (!data.data?.[0]?.url) {
+          return res.json({ ...data, data: [{ url }] });
+        }
         return res.json(data);
       }
-      return res.status(500).json({ error: "Invalid response: no image URL returned" });
+      console.error("[Image API] no URL in response:", responseText.slice(0, 500));
+      return res.status(500).json({ error: "Invalid response: no image URL returned", raw: responseText.slice(0, 500) });
     } catch (e) {
-      return res.status(500).json({ error: "Invalid response from Agnes API" });
+      return res.status(500).json({ error: "Invalid response from Agnes API", raw: responseText.slice(0, 300) });
     }
   } catch (error: any) {
     console.error("Proxy Images error:", error);
-    return res.status(500).json({ error: error.message || "Failed to connect to Agnes API" });
+    const msg =
+      error?.name === "AbortError"
+        ? "Image generation timed out (180s)"
+        : error.message || "Failed to connect to Agnes API";
+    return res.status(500).json({ error: msg });
   }
 });
 
@@ -453,10 +473,26 @@ app.post("/api/proxy/videos", async (req, res) => {
       if (response.ok) {
         try {
           const data = JSON.parse(responseText);
-          if (data.task_id || data.video_id) {
-            return res.status(response.status).json(data);
+          // Normalize IDs — docs: video_id is preferred for polling; id/task_id are legacy
+          const taskId = data.task_id || data.id;
+          const videoId = data.video_id;
+          if (!taskId && !videoId) {
+            return res.status(400).json({ error: "Invalid response: missing task_id or video_id", raw: data });
           }
-          return res.status(400).json({ error: "Invalid response: missing task_id or video_id" });
+          // Cap awareness: clients may send too many frames; log for debugging
+          console.log(
+            `[Video API] created task_id=${taskId || "n/a"} video_id=${videoId || "n/a"} status=${data.status || "?"}`
+          );
+          return res.status(response.status).json({
+            ...data,
+            // Explicit aliases so all clients pick video_id first
+            task_id: taskId,
+            video_id: videoId,
+            id: taskId || videoId,
+            // Hint for clients: always poll with poll_id
+            poll_id: videoId || taskId,
+            poll_mode: videoId ? "video_id" : "task_id",
+          });
         } catch (e) {
           return res.status(500).json({ error: "Failed to parse Agnes API response" });
         }
@@ -498,39 +534,21 @@ app.get("/api/proxy/status", async (req, res) => {
   if (!rawId) {
     return res.status(400).json({ error: "Required query parameter video_id or task_id is missing" });
   }
-  const targetId = resolveVideoId(rawId);
-  const targetUrl = `https://apihub.agnes-ai.com/agnesapi?video_id=${targetId}`;
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-    const response = await fetch(targetUrl, {
-      method: "GET",
-      headers: {
-        "Authorization": authHeader,
-      },
-      signal: controller.signal,
+    // Strip "Bearer " for fetchVideoStatus helper (it adds Authorization itself)
+    const apiKey = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : authHeader;
+    const data = await fetchVideoStatus(rawId, apiKey);
+    if (!data) {
+      return res.status(502).json({ error: "Failed to query Agnes video status from all endpoints" });
+    }
+    // Normalize URL field for clients
+    const url = extractVideoUrl(data);
+    return res.json({
+      ...data,
+      url: url || data.url,
+      video_url: url || data.video_url,
     });
-    clearTimeout(timeoutId);
-
-    const responseText = await response.text();
-
-    if (!response.ok) {
-      let errorMsg = `Agnes API error: ${response.status}`;
-      try {
-        const errData = JSON.parse(responseText);
-        errorMsg = errData.error?.message || errData.message || errorMsg;
-      } catch {}
-      return res.status(response.status).json({ error: errorMsg });
-    }
-
-    try {
-      const data = JSON.parse(responseText);
-      return res.json(data);
-    } catch (e) {
-      return res.status(500).json({ error: "Invalid response from Agnes API" });
-    }
   } catch (error: any) {
     console.error("Proxy Status error:", error);
     return res.status(500).json({ error: error.message || "Failed to connect to Agnes API" });
@@ -812,18 +830,361 @@ function resolveVideoId(videoId: string): string {
   return videoId;
 }
 
+function isHttpUrl(v: unknown): v is string {
+  return typeof v === "string" && /^https?:\/\//i.test(v);
+}
+
+/** Deep-search any http(s) URL that looks like a video asset */
+function extractVideoUrl(rawData: any): string | undefined {
+  if (!rawData || typeof rawData !== "object") return undefined;
+
+  const directCandidates = [
+    rawData.url,
+    rawData.video_url,
+    rawData.videoUrl,
+    rawData.remixed_from_video_id,
+    rawData.download_url,
+    rawData.downloadUrl,
+    rawData.output_url,
+    rawData.outputUrl,
+    rawData.file_url,
+    rawData.fileUrl,
+    rawData.mp4_url,
+    rawData.mp4Url,
+    rawData.urls?.[0],
+    rawData.data?.url,
+    rawData.data?.video_url,
+    rawData.data?.[0]?.url,
+    rawData.output?.url,
+    rawData.output?.video_url,
+    rawData.result?.url,
+    rawData.result?.video_url,
+    rawData.video?.url,
+    rawData.assets?.[0]?.url,
+    rawData.files?.[0]?.url,
+  ];
+  for (const c of directCandidates) {
+    if (isHttpUrl(c)) return c;
+    // remixed_from_video_id sometimes is a bare video_ id, not a URL — skip non-http
+  }
+
+  // Recursive walk (depth-limited) for any .mp4 / platform-outputs URL
+  const seen = new Set<any>();
+  const stack: any[] = [rawData];
+  let steps = 0;
+  while (stack.length && steps < 80) {
+    steps++;
+    const cur = stack.pop();
+    if (!cur || typeof cur !== "object" || seen.has(cur)) continue;
+    seen.add(cur);
+    if (Array.isArray(cur)) {
+      for (const item of cur) stack.push(item);
+      continue;
+    }
+    for (const [k, v] of Object.entries(cur)) {
+      if (isHttpUrl(v)) {
+        const s = v as string;
+        if (
+          /\.mp4(\?|$)/i.test(s) ||
+          /agnes-ai\.space/i.test(s) ||
+          /platform-outputs/i.test(s) ||
+          /\/videos\//i.test(s) ||
+          /cdn/i.test(s) ||
+          k.toLowerCase().includes("url") ||
+          k.toLowerCase().includes("video")
+        ) {
+          return s;
+        }
+      } else if (v && typeof v === "object") {
+        stack.push(v);
+      }
+    }
+  }
+  return undefined;
+}
+
+function extractErrorMessage(rawData: any): string {
+  const err = rawData?.error;
+  if (!err) return "Video generation failed";
+  if (typeof err === "string") return err;
+  if (typeof err === "object") {
+    return err.message || err.code || JSON.stringify(err);
+  }
+  return String(err);
+}
+
+function isTerminalSuccess(status: string): boolean {
+  return ["completed", "success", "succeeded", "done"].includes(status);
+}
+
+function isTerminalFailure(status: string): boolean {
+  return ["failed", "error", "cancelled", "canceled"].includes(status);
+}
+
+/**
+ * Build poll URLs for Agnes video tasks.
+ * Official clients ALWAYS use /agnesapi?video_id=...&model_name=agnes-video-v2.0
+ * even when the id looks like task_*. /v1/videos/{id} often returns progress
+ * without the final URL — so we try agnesapi first, then legacy.
+ */
+function buildVideoPollUrls(rawId: string): string[] {
+  const resolved = resolveVideoId(rawId);
+  const ids = Array.from(new Set([resolved, rawId].filter(Boolean)));
+  const urls: string[] = [];
+
+  for (const id of ids) {
+    // Preferred (official example / 1038lab video.py)
+    urls.push(
+      `https://apihub.agnes-ai.com/agnesapi?video_id=${encodeURIComponent(id)}&model_name=agnes-video-v2.0`
+    );
+    urls.push(`https://apihub.agnes-ai.com/agnesapi?video_id=${encodeURIComponent(id)}`);
+    // Legacy OpenAI-compatible
+    urls.push(`https://apihub.agnes-ai.com/v1/videos/${encodeURIComponent(id)}`);
+    urls.push(`https://apihub.agnes-ai.com/v1/video/generations/${encodeURIComponent(id)}`);
+  }
+
+  return urls;
+}
+
+async function fetchVideoStatus(rawId: string, apiKey: string): Promise<any | null> {
+  const urls = buildVideoPollUrls(rawId);
+  let lastErr: any = null;
+  let bestPartial: any | null = null; // keep highest-progress response if none have URL yet
+
+  for (const targetUrl of urls) {
+    try {
+      const response = await fetch(targetUrl, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(20000),
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        lastErr = { status: response.status, body: text.slice(0, 200), url: targetUrl };
+        console.warn(`[Video Poll] ${response.status} ${targetUrl} ${text.slice(0, 120)}`);
+        continue;
+      }
+      // Content endpoint may return binary — skip non-JSON
+      const trimmed = text.trim();
+      if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+        console.warn(`[Video Poll] non-JSON from ${targetUrl} (${text.slice(0, 40)})`);
+        continue;
+      }
+      const data = JSON.parse(text);
+      data.__poll_via = targetUrl;
+
+      const url = extractVideoUrl(data);
+      const status = String(data.status || data.state || "").toLowerCase();
+
+      // Prefer any response that already has a playable URL
+      if (url) {
+        console.log(`[Video Poll] URL found via ${targetUrl}`);
+        return data;
+      }
+
+      // Track best progress/status for caller
+      if (
+        !bestPartial ||
+        (typeof data.progress === "number" &&
+          data.progress > (bestPartial.progress || 0)) ||
+        isTerminalSuccess(status)
+      ) {
+        bestPartial = data;
+      }
+    } catch (e: any) {
+      lastErr = e;
+      if (e?.name === "TimeoutError" || e?.name === "AbortError") continue;
+      console.warn(`[Video Poll] error ${targetUrl}:`, e?.message || e);
+    }
+  }
+
+  if (bestPartial) return bestPartial;
+
+  if (lastErr) {
+    console.warn("[Video Poll] all endpoints failed for", rawId, lastErr);
+  }
+  return null;
+}
+
+/**
+ * Historical Agnes completions use a stable CDN path:
+ *   https://platform-outputs.agnes-ai.space/videos/agnes-video-v2.0/{task_or_video_id}.mp4
+ * When status=completed but JSON omits `url`, try these guessed URLs (HEAD/GET probe).
+ */
+function guessedOutputUrls(rawId: string): string[] {
+  const id = rawId.split("?")[0];
+  const bare = id; // keep task_ / video_ prefix — CDN uses full id in path
+  // Also try without query-only; and litellm-decoded inner id if present
+  const ids = new Set<string>([bare]);
+  const resolved = resolveVideoId(bare);
+  if (resolved !== bare) ids.add(resolved);
+
+  const urls: string[] = [];
+  for (const i of ids) {
+    urls.push(`https://platform-outputs.agnes-ai.space/videos/agnes-video-v2.0/${i}.mp4`);
+    // Some older jobs used bare id without model folder
+    urls.push(`https://platform-outputs.agnes-ai.space/videos/${i}.mp4`);
+  }
+  return urls;
+}
+
+async function probeUrlExists(url: string): Promise<boolean> {
+  try {
+    const head = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(10000) });
+    if (head.ok) {
+      const len = Number(head.headers.get("content-length") || "0");
+      const ct = head.headers.get("content-type") || "";
+      if (len > 1000 || ct.includes("video") || ct.includes("octet-stream") || ct.includes("mp4")) {
+        return true;
+      }
+      // Some CDNs reject HEAD — fall through to range GET
+    }
+    // Range request for first byte
+    const get = await fetch(url, {
+      method: "GET",
+      headers: { Range: "bytes=0-1023" },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (get.ok || get.status === 206) {
+      const buf = Buffer.from(await get.arrayBuffer());
+      return buf.length > 100;
+    }
+  } catch (e: any) {
+    console.warn(`[Video Guess] probe fail ${url}:`, e?.message || e);
+  }
+  return false;
+}
+
+async function tryGuessCompletedVideoUrl(rawId: string): Promise<string | null> {
+  for (const url of guessedOutputUrls(rawId)) {
+    console.log(`[Video Guess] probing ${url}`);
+    if (await probeUrlExists(url)) {
+      console.log(`[Video Guess] hit ${url}`);
+      return url;
+    }
+  }
+  return null;
+}
+
+/**
+ * When JSON status says completed but no URL, try OpenAI-style content download
+ * and host the file under /uploads so the browser can play it.
+ */
+async function tryDownloadVideoContent(rawId: string, apiKey: string): Promise<string | null> {
+  // 1) CDN path guess from historical successful jobs
+  const guessed = await tryGuessCompletedVideoUrl(rawId);
+  if (guessed) return guessed;
+
+  const candidates = [
+    `https://apihub.agnes-ai.com/v1/videos/${encodeURIComponent(rawId)}/content`,
+    `https://apihub.agnes-ai.com/v1/videos/${encodeURIComponent(rawId)}/content?variant=video`,
+  ];
+
+  for (const targetUrl of candidates) {
+    try {
+      console.log(`[Video Content] GET ${targetUrl}`);
+      const response = await fetch(targetUrl, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(120000),
+      });
+      if (!response.ok) {
+        console.warn(`[Video Content] ${response.status} ${targetUrl}`);
+        continue;
+      }
+      const contentType = response.headers.get("content-type") || "";
+      // If JSON, maybe it embeds a URL
+      if (contentType.includes("json")) {
+        const data = await response.json();
+        const url = extractVideoUrl(data);
+        if (url) return url;
+        continue;
+      }
+      const buf = Buffer.from(await response.arrayBuffer());
+      if (buf.length < 1000) {
+        console.warn(`[Video Content] tiny body ${buf.length} bytes from ${targetUrl}`);
+        continue;
+      }
+      // Heuristic: MP4 often starts with ftyp within first bytes
+      const head = buf.slice(0, 12).toString("ascii");
+      const looksVideo =
+        contentType.includes("video") ||
+        contentType.includes("octet-stream") ||
+        head.includes("ftyp") ||
+        buf[0] === 0x00;
+
+      if (!looksVideo) {
+        console.warn(`[Video Content] unexpected content-type ${contentType}`);
+        // still save if reasonably large
+      }
+
+      const filename = `agnes_${Date.now()}_${rawId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 24)}.mp4`;
+      const filepath = path.join(UPLOADS_DIR, filename);
+      await fs.promises.writeFile(filepath, buf);
+      const localUrl = `/uploads/${filename}`;
+      console.log(`[Video Content] saved ${buf.length} bytes → ${localUrl}`);
+
+      // Also copy to session output
+      try {
+        if (currentSessionDir) {
+          fs.copyFileSync(filepath, path.join(currentSessionDir, filename));
+        }
+      } catch {}
+
+      return localUrl;
+    } catch (e: any) {
+      console.warn(`[Video Content] error:`, e?.message || e);
+    }
+  }
+  return null;
+}
+
 async function pollAgnesVideoStatus(
   videoId: string,
   apiKey: string,
   ws: WebSocket,
   taskId: string
 ): Promise<void> {
-  const delays = [5000, 10000, 15000, 20000, 30000, 45000, 60000];
-  const maxAttempts = 35;
+  // ~20–25 min total: video gen often takes 2–8+ min under load
+  const delays = [3000, 5000, 8000, 10000, 15000, 20000, 30000];
+  const maxAttempts = 60;
   let lastLogTime = 0;
+  let activeId = videoId;
+  const startedAt = Date.now();
+
+  const sendProgress = (message: string, status: string, progress?: number) => {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    ws.send(
+      JSON.stringify({
+        type: "progress",
+        taskId,
+        step: "video",
+        status,
+        message,
+        progress: progress ?? 0,
+      })
+    );
+  };
+
+  sendProgress(`📡 Polling ${activeId} (agnesapi + legacy)...`, "queued", 0);
+  let missingUrlRetries = 0;
+
+  const finishWithUrl = async (videoUrl: string) => {
+    try {
+      if (currentSessionDir && videoUrl.startsWith("http")) {
+        const filename = `video_${Date.now()}.mp4`;
+        const filepath = path.join(currentSessionDir, filename);
+        downloadFile(videoUrl, filepath).catch(() => {});
+      }
+    } catch {}
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "done", taskId, url: videoUrl, videoId: activeId }));
+    }
+  };
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    if (ws.readyState !== WebSocket.OPEN) return;
+    if (ws.readyState !== WebSocket.OPEN) {
+      console.log(`[Video Poll] WS closed for ${taskId}, stopping`);
+      return;
+    }
 
     if (attempt > 0) {
       const delay = delays[Math.min(attempt - 1, delays.length - 1)];
@@ -833,78 +1194,236 @@ async function pollAgnesVideoStatus(
     if (ws.readyState !== WebSocket.OPEN) return;
 
     try {
-      const resolvedId = resolveVideoId(videoId);
-      // CRITICAL: Use /agnesapi?video_id= for polling (NOT /v1/video/generations/{task_id})
-      // Using task_id causes 20+ min queue, using video_id takes ~80 seconds
-      const targetUrl = `https://apihub.agnes-ai.com/agnesapi?video_id=${resolvedId}`;
-      const response = await fetch(targetUrl, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-        signal: AbortSignal.timeout(8000),
-      });
+      const rawData = await fetchVideoStatus(activeId, apiKey);
+      if (!rawData) {
+        if (Date.now() - lastLogTime > 20000) {
+          sendProgress("⏳ Waiting for Agnes status (no response yet)...", "pending");
+          lastLogTime = Date.now();
+        }
+        continue;
+      }
 
-      if (!response.ok) continue;
+      // Upgrade to a distinct video_ id when API returns one
+      if (
+        rawData.video_id &&
+        typeof rawData.video_id === "string" &&
+        rawData.video_id.startsWith("video_") &&
+        activeId !== rawData.video_id
+      ) {
+        console.log(`[Video Poll] upgrading poll id ${activeId} → ${rawData.video_id}`);
+        activeId = rawData.video_id;
+        sendProgress(`🔄 Resolved video_id: ${activeId}`, rawData.status || "in_progress", rawData.progress);
+      }
 
-      const rawData = await response.json();
-      // Agnes /agnesapi response: { status, progress, video_url, remixed_from_video_id, error }
-      const status = rawData.status?.toLowerCase() || "unknown";
-      const progress = rawData.progress ?? 0;
-      const videoUrl = rawData.remixed_from_video_id || rawData.video_url || rawData.url
-                    || rawData.urls?.[0];
+      const status = String(rawData.status || rawData.state || "unknown").toLowerCase();
+      const progress = typeof rawData.progress === "number" ? rawData.progress : 0;
+      let videoUrl = extractVideoUrl(rawData);
+      const elapsedMin = Math.max(1, Math.round((Date.now() - startedAt) / 60000));
+      const via = rawData.__poll_via ? ` via ${String(rawData.__poll_via).replace("https://apihub.agnes-ai.com", "")}` : "";
 
-      // Clear progress messages in English
-      const now = Date.now();
       const statusMessages: Record<string, string> = {
-        "not_start": "⏳ Queued, waiting to generate...",
-        "queued": "⏳ In queue, waiting...",
-        "processing": "⚙️ Generating video...",
-        "running": "⚙️ Generating video...",
-        "completed": "✅ Generation complete!",
-        "success": "✅ Generation complete!",
-        "failed": "❌ Generation failed",
+        not_start: "⏳ Queued, waiting to start...",
+        queued: "⏳ In queue...",
+        pending: "⏳ Pending...",
+        processing: "⚙️ Generating video...",
+        running: "⚙️ Generating video...",
+        in_progress: "⚙️ Generating video (in_progress)...",
+        completed: "✅ Generation complete!",
+        success: "✅ Generation complete!",
+        succeeded: "✅ Generation complete!",
+        done: "✅ Generation complete!",
+        failed: "❌ Generation failed",
       };
 
       const progressMsg = statusMessages[status] || `📡 Status: ${status}`;
-      const timeMsg = attempt > 0 ? ` (${Math.round(attempt * 15 / 60)}min)` : "";
+      const now = Date.now();
 
-      // Only log every 15 seconds to avoid spam
-      if (now - lastLogTime > 15000 || attempt === 0) {
-        ws.send(JSON.stringify({
-          type: "progress",
-          taskId,
-          step: "video",
-          status: status || "pending",
-          message: `${progressMsg}${timeMsg}`,
-          progress,
-        }));
+      if (
+        now - lastLogTime > 12000 ||
+        attempt === 0 ||
+        isTerminalSuccess(status) ||
+        isTerminalFailure(status)
+      ) {
+        const pct = progress > 0 ? ` ${progress}%` : "";
+        sendProgress(`${progressMsg}${pct} (~${elapsedMin}min)${via}`, status, progress);
         lastLogTime = now;
+        console.log(
+          `[Video Poll] ${activeId} status=${status} progress=${progress} hasUrl=${!!videoUrl}${via}`
+        );
       }
 
-      if (status === "completed" || status === "success") {
+      if (isTerminalSuccess(status) || (progress >= 100 && !isTerminalFailure(status))) {
         if (videoUrl) {
-          ws.send(JSON.stringify({ type: "done", taskId, url: videoUrl }));
-        } else {
-          ws.send(JSON.stringify({ type: "error", taskId, message: "No URL in completed response" }));
+          await finishWithUrl(videoUrl);
+          return;
+        }
+
+        // Log raw keys to diagnose missing URL shape
+        const keys = Object.keys(rawData).filter((k) => !k.startsWith("__"));
+        console.warn(
+          `[Video Poll] completed without URL. keys=[${keys.join(",")}] sample=${JSON.stringify(rawData).slice(0, 800)}`
+        );
+        sendProgress(
+          `⚠️ Completed 100% but no URL in JSON — trying content download / other endpoints...`,
+          "completed",
+          99
+        );
+
+        // Aggressive second pass: re-fetch all endpoints for URL only
+        const again = await fetchVideoStatus(activeId, apiKey);
+        videoUrl = again ? extractVideoUrl(again) : undefined;
+        if (videoUrl) {
+          await finishWithUrl(videoUrl);
+          return;
+        }
+
+        // OpenAI-style binary content download → host under /uploads
+        missingUrlRetries++;
+        if (missingUrlRetries <= 4) {
+          const local = await tryDownloadVideoContent(activeId, apiKey);
+          if (local) {
+            await finishWithUrl(local);
+            return;
+          }
+          // Brief wait then continue loop — URL sometimes appears late on CDN
+          sendProgress(
+            `⚠️ Still no URL (retry ${missingUrlRetries}/4). Waiting for CDN / content endpoint...`,
+            "completed",
+            99
+          );
+          continue;
+        }
+
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              taskId,
+              message: `Video status is completed but Agnes returned no playable URL. id=${activeId}. Response keys: ${keys.join(", ")}. Try again or check Agnes console.`,
+            })
+          );
         }
         return;
       }
 
-      if (status === "failed") {
-        ws.send(JSON.stringify({ type: "error", taskId, message: rawData.error || "Video generation failed" }));
+      if (isTerminalFailure(status)) {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              taskId,
+              message: extractErrorMessage(rawData),
+            })
+          );
+        }
         return;
       }
     } catch (err: any) {
-      if (err.name === "TimeoutError") continue;
+      console.warn("[Video Poll] loop error:", err?.message || err);
+      if (err.name === "TimeoutError" || err.name === "AbortError") continue;
     }
   }
 
+  // Final desperate attempt before timeout
+  try {
+    const finalData = await fetchVideoStatus(activeId, apiKey);
+    const finalUrl = finalData ? extractVideoUrl(finalData) : undefined;
+    if (finalUrl) {
+      await finishWithUrl(finalUrl);
+      return;
+    }
+    const local = await tryDownloadVideoContent(activeId, apiKey);
+    if (local) {
+      await finishWithUrl(local);
+      return;
+    }
+  } catch {}
+
   if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: "error", taskId, message: "Polling timeout" }));
+    ws.send(
+      JSON.stringify({
+        type: "error",
+        taskId,
+        message: `Polling timeout after ~${Math.round((Date.now() - startedAt) / 60000)}min. Task may still complete — check id: ${activeId}`,
+      })
+    );
   }
 }
 
 // ==========================================
 // 4.6 AD PRODUCT API
 // ==========================================
+
+// Fallback logo prompts so image generation can always proceed even if chat JSON fails
+function buildFallbackLogoPrompts(product: any, count: number): string[] {
+  const name = product?.name || "Brand";
+  const desc = product?.description || "product brand";
+  const style = product?.style || "modern";
+  const styles = [
+    `minimalist clean modern professional logo for "${name}", ${desc}, simple geometric icon, flat design, monochrome or two-tone, vector-style, white background, sharp, 4k`,
+    `vibrant bold energetic logo for "${name}", ${desc}, dynamic shapes, bright color palette, eye-catching, contemporary branding, vector-style, clean background, sharp, 4k`,
+    `premium luxury elegant logo for "${name}", ${desc}, sophisticated typography, gold/black accents, high-end brand identity, refined icon, vector-style, clean background, sharp, 4k`,
+    `playful creative colorful logo for "${name}", ${desc}, friendly rounded shapes, approachable brand mark, fun palette, vector-style, white background, sharp, 4k`,
+    `corporate professional trustworthy logo for "${name}", ${desc}, established brand look, balanced layout, blue/gray palette, vector-style, clean background, sharp, 4k`,
+    `natural organic earthy logo for "${name}", ${desc}, sustainable aesthetic, soft greens and browns, handcrafted feel, vector-style, clean background, sharp, 4k`,
+    `futuristic tech innovative logo for "${name}", ${desc}, neon accents, geometric precision, digital brand identity, vector-style, dark or white background, sharp, 4k`,
+    `vintage retro classic logo for "${name}", ${desc}, nostalgic badge style, timeless typography, muted palette, vector-style, clean background, sharp, 4k`,
+    `artistic expressive unique logo for "${name}", ${desc}, memorable custom mark, creative composition, distinctive brand, vector-style, clean background, sharp, 4k`,
+  ];
+  // lightly inject product style preference into first prompts
+  return styles.slice(0, count).map((p, i) =>
+    i === 0 ? `${p}, brand style: ${style}` : p
+  );
+}
+
+function normalizeLogoVariants(raw: any, product: any, count: number): string[] {
+  let list: any[] = [];
+  if (Array.isArray(raw)) list = raw;
+  else if (Array.isArray(raw?.variants)) list = raw.variants;
+  else if (typeof raw?.variants === "string") list = [raw.variants];
+
+  const normalized = list
+    .map((v) => {
+      if (typeof v === "string") return v.trim();
+      if (v && typeof v === "object") {
+        const p = v.prompt || v.text || v.description || v.content;
+        if (typeof p === "string") return p.trim();
+      }
+      return "";
+    })
+    .filter((s) => s.length > 8);
+
+  if (normalized.length >= count) return normalized.slice(0, count);
+  const fallback = buildFallbackLogoPrompts(product, count);
+  return [...normalized, ...fallback].slice(0, count);
+}
+
+function extractJsonObject(text: string): any | null {
+  if (!text) return null;
+  let jsonStr = text.trim();
+  const fence = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) jsonStr = fence[1].trim();
+  // Try direct parse
+  try {
+    return JSON.parse(jsonStr);
+  } catch {}
+  // Try first {...} block
+  const brace = jsonStr.match(/\{[\s\S]*\}/);
+  if (brace) {
+    try {
+      return JSON.parse(brace[0]);
+    } catch {}
+  }
+  // Try array of strings
+  const arr = jsonStr.match(/\[[\s\S]*\]/);
+  if (arr) {
+    try {
+      const parsed = JSON.parse(arr[0]);
+      if (Array.isArray(parsed)) return { variants: parsed };
+    } catch {}
+  }
+  return null;
+}
 
 // Generate logo design prompts
 app.post("/api/logo/generate", async (req, res) => {
@@ -924,6 +1443,7 @@ app.post("/api/logo/generate", async (req, res) => {
   }
 
   const count = Math.min(Math.max(Number(variantCount) || 3, 1), 9);
+  const fallback = buildFallbackLogoPrompts(product, count);
 
   const systemPrompt = `You are a professional brand identity designer. Generate ${count} different logo design prompts for a product.
 
@@ -933,23 +1453,11 @@ Category: ${product.category}
 Brand Style: ${product.style}
 Target Platform: ${product.targetPlatform}
 
-Generate ${count} prompts, each with a DIFFERENT style approach:
-1. Minimalist clean style - simple, modern, professional
-2. Vibrant energetic style - bold colors, dynamic, eye-catching
-3. Premium luxury style - elegant, sophisticated, high-end${count > 3 ? '\n4. Playful fun style - colorful, creative, approachable' : ''}${count > 4 ? '\n5. Corporate professional style - trustworthy, established, reliable' : ''}${count > 5 ? '\n6. Natural organic style - earthy, sustainable, authentic' : ''}${count > 6 ? '\n7. Futuristic tech style - innovative, cutting-edge, bold' : ''}${count > 7 ? '\n8. Vintage retro style - nostalgic, classic, timeless' : ''}${count > 8 ? '\n9. Artistic creative style - unique, expressive, memorable' : ''}
+Generate ${count} prompts, each with a DIFFERENT style approach.
+Each prompt must be a detailed English image generation prompt for creating a logo.
 
-Each prompt should be a detailed English image generation prompt for creating a logo. Include:
-- Logo design description (icon/symbol + text layout)
-- Color palette recommendation
-- Style keywords
-- Background suggestion
-- Quality boosters (4K, sharp, vector-style)
-
-Output format (JSON):
-{
-  "prompt": "Brief overview prompt",
-  "variants": ["prompt1", "prompt2", ...]
-}`;
+CRITICAL: Reply with ONLY valid JSON, no markdown, no commentary:
+{"prompt":"overview","variants":["prompt1","prompt2","prompt3"]}`;
 
   try {
     const response = await fetch("https://apihub.agnes-ai.com/v1/chat/completions", {
@@ -962,39 +1470,60 @@ Output format (JSON):
         model: "agnes-2.0-flash",
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: `Generate ${count} logo design prompts for: ${product.name} - ${product.description}` },
+          { role: "user", content: `Generate ${count} logo design prompts for: ${product.name} - ${product.description || ""}` },
         ],
         temperature: 0.7,
-        max_tokens: 2000,
+        max_tokens: 2500,
       }),
     });
 
     if (!response.ok) {
       const errText = await response.text();
-      return res.status(response.status).json({ error: `Agnes API error: ${errText}` });
+      console.warn(`[logo/generate] chat API ${response.status}, using fallback prompts. ${errText.slice(0, 200)}`);
+      // Never block the pipeline — image gen can still run on fallbacks
+      return res.json({
+        prompt: `Logo concepts for ${product.name}`,
+        variants: fallback,
+        fallback: true,
+        warning: `Chat API ${response.status}; used template prompts`,
+      });
     }
 
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || "";
+    console.log(`[logo/generate] raw content length=${content.length}`);
 
-    let jsonStr = content;
-    const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (jsonMatch) {
-      jsonStr = jsonMatch[1];
-    }
+    const parsed = extractJsonObject(content);
+    const variants = normalizeLogoVariants(parsed ?? content, product, count);
 
-    try {
-      const parsed = JSON.parse(jsonStr);
-      return res.json(parsed);
-    } catch (e) {
-      return res.status(500).json({ error: "Failed to parse AI response as JSON", raw: content });
-    }
+    return res.json({
+      prompt: parsed?.prompt || `Logo concepts for ${product.name}`,
+      variants,
+      fallback: !parsed || variants === fallback,
+    });
   } catch (error: any) {
-    return res.status(500).json({ error: error.message || "Failed to generate logo prompts" });
+    console.error("[logo/generate] error, using fallback:", error?.message || error);
+    return res.json({
+      prompt: `Logo concepts for ${product.name}`,
+      variants: fallback,
+      fallback: true,
+      warning: error?.message || "chat failed",
+    });
   }
 });
 
 // Generate product marketing image prompts
+function buildFallbackMarketingPrompts(product: any, textDesc?: string): string[] {
+  const name = product?.name || "Product";
+  const desc = textDesc || product?.description || "premium product";
+  const style = product?.style || "modern";
+  return [
+    `professional e-commerce product photo of ${name}, ${desc}, centered product on clean white seamless background, soft studio softbox lighting, sharp focus, commercial catalog style, ${style} brand aesthetic, 4k, high detail, no text watermark`,
+    `lifestyle social media marketing photo featuring ${name}, ${desc}, natural everyday scene, trendy aesthetic, soft daylight, shallow depth of field, Douyin/Xiaohongshu style composition, ${style} mood, photorealistic, 4k`,
+    `cinematic brand poster for ${name}, ${desc}, dramatic lighting, premium composition, bold negative space for headline, high-end advertising look, ${style} color grade, ultra detailed, 4k commercial photography`,
+  ];
+}
+
 app.post("/api/product-image/generate", async (req, res) => {
   const authHeader = req.headers.authorization;
   if (!authHeader) {
@@ -1011,38 +1540,31 @@ app.post("/api/product-image/generate", async (req, res) => {
     return res.status(400).json({ error: "Demo key detected. Please enter a real Agnes API key." });
   }
 
-  const inputDesc = imageUrl ? `Product image URL: ${imageUrl}` : `Product description: ${textDesc || product.description}`;
+  const fallback = buildFallbackMarketingPrompts(product, textDesc);
+  // Never put huge base64 into the chat prompt — just note that a reference image exists
+  const hasRef =
+    typeof imageUrl === "string" &&
+    (imageUrl.startsWith("http") || imageUrl.startsWith("data:image"));
+  const inputDesc = hasRef
+    ? "User provided a product reference image (img2img will use it later). Keep product appearance exact."
+    : `Product description: ${textDesc || product.description || ""}`;
 
   const systemPrompt = `You are a professional marketing visual designer. Generate 3 different marketing image prompts for a product.
 
 Product: ${product.name}
-Description: ${product.description}
-Category: ${product.category}
-Brand Style: ${product.style}
-Target Platform: ${product.targetPlatform}
+Description: ${product.description || ""}
+Category: ${product.category || ""}
+Brand Style: ${product.style || ""}
+Target Platform: ${product.targetPlatform || "general"}
 Input: ${inputDesc}
 
-Generate 3 prompts, each for a DIFFERENT marketing scene:
-1. E-commerce main image - clean white/simple background, product centered, professional product photography style
-2. Social media material - lifestyle context, trendy aesthetic, platform-optimized (Douyin/Xiaohongshu style)
-3. Brand poster - cinematic composition, dramatic lighting, premium feel
+Generate 3 prompts for DIFFERENT scenes:
+1. E-commerce main image
+2. Social media lifestyle
+3. Brand poster
 
-Each prompt should be a detailed English image generation prompt. Include:
-- Product positioning and composition
-- Background and environment
-- Lighting setup
-- Color palette
-- Style keywords matching the brand style
-- Quality boosters (4K, sharp focus, commercial photography)
-
-IMPORTANT: The product must maintain its exact original appearance. No distortion, no deformation.
-The product's shape, structure, and appearance remain exactly as shown in reference.
-
-Output format (JSON):
-{
-  "prompt": "Brief overview prompt",
-  "variants": ["prompt1 for ecommerce", "prompt2 for social media", "prompt3 for brand poster"]
-}`;
+CRITICAL: Reply with ONLY valid JSON, no markdown:
+{"prompt":"overview","variants":["ecommerce prompt","social prompt","poster prompt"]}`;
 
   try {
     const response = await fetch("https://apihub.agnes-ai.com/v1/chat/completions", {
@@ -1064,26 +1586,44 @@ Output format (JSON):
 
     if (!response.ok) {
       const errText = await response.text();
-      return res.status(response.status).json({ error: `Agnes API error: ${errText}` });
+      console.warn(`[product-image/generate] chat ${response.status}, using fallback. ${errText.slice(0, 200)}`);
+      return res.json({
+        prompt: `Marketing images for ${product.name}`,
+        variants: fallback,
+        fallback: true,
+        warning: `Chat API ${response.status}`,
+      });
     }
 
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || "";
+    const parsed = extractJsonObject(content);
+    // Normalize strings only (do not pad with logo-style fallbacks)
+    let list: any[] = [];
+    if (Array.isArray(parsed?.variants)) list = parsed.variants;
+    else if (Array.isArray(parsed)) list = parsed;
+    const fromAi = list
+      .map((v) => {
+        if (typeof v === "string") return v.trim();
+        if (v && typeof v === "object" && typeof v.prompt === "string") return v.prompt.trim();
+        return "";
+      })
+      .filter((s) => s.length > 8);
+    const finalVariants = [...fromAi, ...fallback].slice(0, 3);
 
-    let jsonStr = content;
-    const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (jsonMatch) {
-      jsonStr = jsonMatch[1];
-    }
-
-    try {
-      const parsed = JSON.parse(jsonStr);
-      return res.json(parsed);
-    } catch (e) {
-      return res.status(500).json({ error: "Failed to parse AI response as JSON", raw: content });
-    }
+    return res.json({
+      prompt: parsed?.prompt || `Marketing images for ${product.name}`,
+      variants: finalVariants,
+      fallback: fromAi.length < 3,
+    });
   } catch (error: any) {
-    return res.status(500).json({ error: error.message || "Failed to generate product image prompts" });
+    console.error("[product-image/generate] error:", error?.message || error);
+    return res.json({
+      prompt: `Marketing images for ${product.name}`,
+      variants: fallback,
+      fallback: true,
+      warning: error?.message || "chat failed",
+    });
   }
 });
 
@@ -1282,6 +1822,126 @@ app.post("/api/video/trim", async (req, res) => {
   } catch (error: any) {
     console.error("Video trim error:", error);
     return res.status(500).json({ error: error.message || "Failed to trim video" });
+  }
+});
+
+// ==========================================
+// VIDEO LAST-FRAME — chain continuity
+// Extract final frame so next video segment can use it as reference image
+// ==========================================
+app.post("/api/video/last-frame", async (req, res) => {
+  const { videoUrl } = req.body;
+  if (!videoUrl || typeof videoUrl !== "string") {
+    return res.status(400).json({ error: "Missing videoUrl" });
+  }
+
+  const tempDir = path.join(UPLOADS_DIR, "temp");
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
+
+  const ts = Date.now();
+  const inputPath = path.join(tempDir, `chain_in_${ts}.mp4`);
+  const framePath = path.join(UPLOADS_DIR, `lastframe_${ts}.jpg`);
+
+  try {
+    // Resolve local vs remote video sources
+    let resolvedInput: string;
+    const bareUrl = videoUrl.split("?")[0];
+
+    if (bareUrl.startsWith("/uploads/") || bareUrl.startsWith("/outputs/")) {
+      const localPath = path.join(process.cwd(), bareUrl.replace(/^\//, ""));
+      if (!fs.existsSync(localPath)) {
+        return res.status(404).json({ error: `Local video not found: ${bareUrl}` });
+      }
+      resolvedInput = localPath;
+    } else if (videoUrl.startsWith("http://") || videoUrl.startsWith("https://")) {
+      // Keep query string — some CDNs require signed/cache-bust params
+      await downloadFile(videoUrl, inputPath);
+      if (!fs.existsSync(inputPath) || fs.statSync(inputPath).size === 0) {
+        throw new Error("Downloaded video file is empty");
+      }
+      resolvedInput = inputPath;
+    } else {
+      return res.status(400).json({ error: "videoUrl must be http(s) or /uploads|/outputs path" });
+    }
+
+    const { execFile } = await import("child_process");
+    const { promisify } = await import("util");
+    const execFileAsync = promisify(execFile);
+
+    // Seek near end (-sseof -0.05) and grab one frame
+    try {
+      await execFileAsync(
+        "ffmpeg",
+        ["-hide_banner", "-loglevel", "error", "-sseof", "-0.05", "-i", resolvedInput, "-frames:v", "1", "-q:v", "2", framePath, "-y"],
+        { timeout: 60000 }
+      );
+    } catch (firstErr: any) {
+      // Fallback: last keyframe approach via duration seek
+      console.warn("[last-frame] -sseof failed, trying -ss near end:", firstErr?.message || firstErr);
+      await execFileAsync(
+        "ffmpeg",
+        ["-hide_banner", "-loglevel", "error", "-sseof", "-1", "-i", resolvedInput, "-update", "1", "-q:v", "2", framePath, "-y"],
+        { timeout: 60000 }
+      );
+    }
+
+    if (!fs.existsSync(framePath) || fs.statSync(framePath).size === 0) {
+      throw new Error("ffmpeg produced empty frame file");
+    }
+
+    const localUrl = `/uploads/${path.basename(framePath)}`;
+    const frameBuffer = fs.readFileSync(framePath);
+    const base64 = `data:image/jpeg;base64,${frameBuffer.toString("base64")}`;
+
+    // Try to get a public URL (Agnes image-to-video needs reachable image URLs)
+    let publicUrl: string | undefined;
+    try {
+      const formData = new FormData();
+      formData.append("source", new Blob([frameBuffer], { type: "image/jpeg" }), `lastframe_${ts}.jpg`);
+      formData.append("type", "file");
+      formData.append("action", "upload");
+      formData.append("key", "6d207e02198a847aa98d0a2a901485a5");
+
+      const uploadResp = await fetch("https://freeimage.host/api/1/upload", {
+        method: "POST",
+        body: formData,
+      });
+      if (uploadResp.ok) {
+        const uploadData: any = await uploadResp.json();
+        publicUrl = uploadData.image?.url || uploadData.image?.display_url;
+      } else {
+        console.warn("[last-frame] freeimage upload failed:", await uploadResp.text());
+      }
+    } catch (uploadErr: any) {
+      console.warn("[last-frame] public upload error:", uploadErr?.message || uploadErr);
+    }
+
+    // Prefer public URL for frameUrl (used as next-segment reference)
+    const frameUrl = publicUrl || localUrl;
+
+    // Also save into session output folder if active
+    try {
+      if (currentSessionDir) {
+        const sessionFrame = path.join(currentSessionDir, `lastframe_${ts}.jpg`);
+        fs.copyFileSync(framePath, sessionFrame);
+      }
+    } catch {}
+
+    // Cleanup downloaded temp video
+    try {
+      if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+    } catch {}
+
+    console.log(`[last-frame] extracted ${frameUrl}${publicUrl ? " (public)" : " (local only)"}`);
+    return res.json({ frameUrl, publicUrl, localUrl, base64 });
+  } catch (error: any) {
+    console.error("Last-frame extraction error:", error);
+    try {
+      if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+    } catch {}
+    return res.status(500).json({ error: error.message || "Failed to extract last frame" });
   }
 });
 

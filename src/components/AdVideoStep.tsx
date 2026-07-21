@@ -6,7 +6,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Film, ArrowLeft, Sparkles, RefreshCw, Play, CheckCircle, AlertTriangle, User, StopCircle, Scissors, Upload, X } from "lucide-react";
 import { Product, AdVideoResult, TaskStatus } from "../types";
-import { generateAdVideoApi, subscribeVideoProgress, saveTask, deleteTask, autoSaveVideo } from "../utils/api";
+import { generateAdVideoApi, saveTask, deleteTask, autoSaveVideo } from "../utils/api";
 import { compressImage } from "../utils/imageCompress";
 
 interface AdVideoStepProps {
@@ -47,9 +47,16 @@ export default function AdVideoStep({
   const [referenceImage, setReferenceImage] = useState<string | undefined>(sourceImageUrl);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const generatingRef = useRef(false);
+  const pollIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    generatingRef.current = isGenerating;
+  }, [isGenerating]);
 
   useEffect(() => {
     return () => {
+      generatingRef.current = false;
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.close();
       }
@@ -102,6 +109,7 @@ export default function AdVideoStep({
           setPollStatus("Success");
           setVideoLogs(prev => [...prev, "✅ Video rendering completed!", "🎉 Cinematic motion clip ready."]);
           setIsGenerating(false);
+          generatingRef.current = false;
           saveTask({ id: taskId, type: "video", status: "completed", videoUrl: cacheBustedUrl, imageUrl: referenceImage || sourceImageUrl, prompt: videoPrompt });
           // Auto-save reference image to output folder
           if (referenceImage || sourceImageUrl) {
@@ -111,12 +119,15 @@ export default function AdVideoStep({
               body: JSON.stringify({ imageUrl: referenceImage || sourceImageUrl, name: "reference" }),
             }).catch(() => {});
           }
+          // Auto-save completed video
+          autoSaveVideo(cacheBustedUrl, `ad_video_${Date.now()}`);
         } else if (msg.type === "error") {
           setError(msg.message);
           setVideoLogs(prev => [...prev, `❌ Error: ${msg.message}`]);
           setPollStatus("");
           setVideoProgress(0);
           setIsGenerating(false);
+          generatingRef.current = false;
           setVideoStatus("failed");
           saveTask({ id: taskId, type: "video", status: "failed", error: msg.message });
         } else if (msg.type === "progress") {
@@ -134,19 +145,95 @@ export default function AdVideoStep({
     };
 
     ws.onerror = () => {
-      setError("WebSocket connection error");
-      setVideoLogs(prev => [...prev, "❌ WebSocket connection error"]);
-      setIsGenerating(false);
-      setVideoStatus("failed");
+      // Don't hard-fail on transient WS errors — HTTP poll fallback may still work
+      setVideoLogs(prev => [...prev, "⚠️ WebSocket glitch — will keep waiting / try manual refresh"]);
+    };
+
+    ws.onclose = () => {
+      // If still generating when socket closes, attempt HTTP status fallback
+      if (generatingRef.current && pollIdRef.current === taskId) {
+        setVideoLogs(prev => [...prev, "🔌 WS closed — checking status via HTTP..."]);
+        void pollStatusHttp(taskId);
+      }
     };
 
     wsRef.current = ws;
+  };
+
+  const pollStatusHttp = async (id: string) => {
+    try {
+      const res = await fetch(`/api/proxy/status?video_id=${encodeURIComponent(id)}`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setVideoLogs(prev => [...prev, `⚠️ HTTP status check failed: ${err.error || res.status}`]);
+        // Retry WS once if still generating
+        if (generatingRef.current) {
+          setTimeout(() => {
+            if (generatingRef.current) connectWebSocket(id);
+          }, 5000);
+        }
+        return;
+      }
+      const data = await res.json();
+      const status = String(data.status || data.state || "").toLowerCase();
+      // Deep-ish URL pick (server also normalizes to url/video_url)
+      const url =
+        data.url ||
+        data.video_url ||
+        data.videoUrl ||
+        data.remixed_from_video_id ||
+        data.result?.video_url ||
+        data.result?.url ||
+        data.output?.url ||
+        data.urls?.[0];
+      setVideoLogs(prev => [
+        ...prev,
+        `📡 HTTP status: ${status}${data.progress != null ? ` ${data.progress}%` : ""}${url ? " (has URL)" : " (no URL)"}`,
+      ]);
+
+      const ok =
+        status === "completed" ||
+        status === "success" ||
+        status === "succeeded" ||
+        status === "done" ||
+        (Number(data.progress) >= 100 && !!url);
+
+      if (ok && url) {
+        const cacheBustedUrl = `${url}${url.includes("?") ? "&" : "?"}t=${Date.now()}`;
+        setVideoUrl(cacheBustedUrl);
+        setVideoStatus("completed");
+        setVideoProgress(100);
+        setPollStatus("Success");
+        setIsGenerating(false);
+        generatingRef.current = false;
+        setVideoLogs(prev => [...prev, "✅ Video ready (HTTP fallback)", "🎉 Cinematic motion clip ready."]);
+        saveTask({ id, type: "video", status: "completed", videoUrl: cacheBustedUrl });
+      } else if (status === "failed") {
+        const msg =
+          typeof data.error === "string"
+            ? data.error
+            : data.error?.message || "Video generation failed";
+        setError(msg);
+        setVideoStatus("failed");
+        setIsGenerating(false);
+        generatingRef.current = false;
+        setVideoLogs(prev => [...prev, `❌ ${msg}`]);
+      } else if (generatingRef.current) {
+        setVideoLogs(prev => [...prev, `⏳ Still ${status || "running"}, re-subscribing...`]);
+        connectWebSocket(id);
+      }
+    } catch (e: any) {
+      setVideoLogs(prev => [...prev, `⚠️ HTTP poll error: ${e.message}`]);
+    }
   };
 
   const handleGenerateVideo = async () => {
     if (!videoPrompt) return;
 
     setIsGenerating(true);
+    generatingRef.current = true;
     setVideoStatus("generating");
     setVideoProgress(0);
     setError(null);
@@ -167,11 +254,26 @@ export default function AdVideoStep({
     });
 
     try {
+      // Cap duration: Agnes Video V2 max num_frames=441 (~18s @ 24fps)
+      const effectiveDuration = Math.min(videoDuration, 18);
+      if (videoDuration > 18) {
+        setVideoLogs(prev => [
+          ...prev,
+          `⚠️ Duration ${videoDuration}s exceeds model max (~18s). Using ${effectiveDuration}s. Use Continue Chain for longer videos.`,
+        ]);
+      }
+
+      const rawFrames = Math.round(effectiveDuration * 24);
+      let num_frames = Math.round((rawFrames - 1) / 8) * 8 + 1;
+      if (num_frames > 441) num_frames = 441;
+
       const videoBody: Record<string, any> = {
         model: "agnes-video-v2.0",
         prompt: videoPrompt,
-        num_frames: Math.round((videoDuration * 24 - 1) / 8) * 8 + 1,
+        num_frames,
         frame_rate: 24,
+        width: 1152,
+        height: 768,
       };
 
       if (referenceImage) {
@@ -203,16 +305,29 @@ export default function AdVideoStep({
         }
       }
 
-      setVideoLogs(prev => [...prev, "🚀 Submitting task to Agnes AI..."]);
+      setVideoLogs(prev => [
+        ...prev,
+        `🚀 Submitting task to Agnes AI... (frames=${num_frames}, ~${effectiveDuration}s)`,
+      ]);
 
-      const createResponse = await fetch("/api/proxy/videos", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(videoBody),
-      });
+      let createResponse: Response;
+      try {
+        createResponse = await fetch("/api/proxy/videos", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify(videoBody),
+        });
+      } catch (netErr: any) {
+        // Browser "Failed to fetch" = server down / network / CORS — not prompt error
+        const detail = netErr?.message || String(netErr);
+        throw new Error(
+          `Cannot reach local server (${detail}). Is Agnes running on http://localhost:3000? ` +
+            `Start with 启动Agnes.bat or: node dist/server.cjs`
+        );
+      }
 
       if (!createResponse.ok) {
         const errData = await createResponse.json().catch(() => ({}));
@@ -223,39 +338,64 @@ export default function AdVideoStep({
       deleteTask(tempId);
 
       const createData = await createResponse.json();
-      // CRITICAL: Use video_id for polling (NOT task_id!)
-      // Agnes API: POST /v1/videos returns both task_id and video_id
-      // Polling MUST use video_id with GET /agnesapi?video_id= or it queues forever
-      const videoId = createData.video_id || createData.id || createData.task_id;
-      const taskId = createData.task_id || videoId;
+      // CRITICAL: Prefer video_id for polling. task_/id only as fallback (legacy endpoint).
+      // Docs: GET /agnesapi?video_id=...  OR  GET /v1/videos/<task_id>
+      const videoId = createData.video_id;
+      const taskId = createData.task_id || createData.id;
+      const pollId = createData.poll_id || videoId || taskId;
 
-      if (!videoId) {
-        throw new Error("No video_id in response");
+      if (!pollId) {
+        throw new Error(`No video_id/task_id in response: ${JSON.stringify(createData).slice(0, 200)}`);
       }
 
-      setVideoTaskId(videoId);
-      setVideoStatus("polling");
-      setVideoLogs(prev => [...prev, `📡 Submitted, Video ID: ${videoId}`, "⚙️ Generating video..."]);
+      // Agnes sometimes returns video_id that is still task_* shape — both work with /agnesapi
+      const realVideoId =
+        videoId && String(videoId).startsWith("video_") ? videoId : undefined;
+      if (!realVideoId) {
+        setVideoLogs(prev => [
+          ...prev,
+          `ℹ️ Create response id is task-shaped; will poll /agnesapi + /v1/videos for URL`,
+        ]);
+      }
 
-      // Save real task (use video_id as the ID for polling)
+      setVideoTaskId(pollId);
+      pollIdRef.current = pollId;
+      setVideoStatus("polling");
+      setVideoLogs(prev => [
+        ...prev,
+        `📡 Submitted`,
+        videoId ? `🎬 video_id: ${videoId}` : null,
+        taskId ? `🪪 task_id: ${taskId}` : null,
+        `🔎 Polling with: ${pollId}`,
+        "⚙️ Generating video (often 2–8 minutes)...",
+      ].filter(Boolean) as string[]);
+
+      // Save real task under poll id
       saveTask({
-        id: videoId,
+        id: pollId,
         type: "video",
         prompt: videoPrompt,
         imageUrl: referenceImage || sourceImageUrl,
         status: "queued",
+        extra: { video_id: videoId, task_id: taskId },
       });
 
-      // Connect WebSocket for progress (using video_id for polling)
-      connectWebSocket(videoId);
+      // Connect WebSocket for progress
+      connectWebSocket(pollId);
 
     } catch (err: any) {
       console.error("Failed to generate video:", err);
-      setError(err.message);
-      setVideoLogs(prev => [...prev, `❌ Error: ${err.message}`, "⚠️ Render pipeline aborted."]);
+      let msg = err?.message || String(err);
+      if (/failed to fetch|networkerror|load failed|econnrefused/i.test(msg)) {
+        msg =
+          "Cannot reach local server (Failed to fetch). Restart Agnes: run 启动Agnes.bat or `node dist/server.cjs` in D:\\mimo code\\Agnesfilm, then hard-refresh (Ctrl+Shift+R).";
+      }
+      setError(msg);
+      setVideoLogs(prev => [...prev, `❌ Error: ${msg}`, "⚠️ Render pipeline aborted."]);
       setVideoStatus("failed");
       setIsGenerating(false);
-      saveTask({ id: tempId, type: "video", status: "failed", error: err.message });
+      generatingRef.current = false;
+      saveTask({ id: tempId, type: "video", status: "failed", error: msg });
     }
   };
 
@@ -391,7 +531,7 @@ export default function AdVideoStep({
           <div className="space-y-4">
             {/* Product Preview */}
             <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-4">
-              <span className="text-xs font-semibold text-slate-300 block mb-3">Reference Image (optional)</span>
+              <span className="text-xs font-semibold text-slate-300 block mb-3">参考图片（可选）</span>
               <div
                 onDrop={handleDrop}
                 onDragOver={handleDragOver}
@@ -417,7 +557,7 @@ export default function AdVideoStep({
                     className="w-full h-32 border-2 border-dashed border-white/10 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-purple-500/30 hover:bg-purple-500/5 transition-colors"
                   >
                     <Upload className="w-6 h-6 text-slate-500 mb-2" />
-                    <p className="text-xs text-slate-400">Drag & drop image or click to upload</p>
+                    <p className="text-xs text-slate-400">拖放图片或点击上传</p>
                     <p className="text-[10px] text-slate-500 mt-1">Used as reference for video generation</p>
                   </div>
                 )}
@@ -438,28 +578,28 @@ export default function AdVideoStep({
             <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-4">
               <div className="flex items-center gap-2 mb-3">
                 <User className="w-4 h-4 text-blue-400" />
-                <span className="text-xs font-semibold text-slate-300">Character Settings (optional)</span>
+                <span className="text-xs font-semibold text-slate-300">角色设置（可选）</span>
               </div>
               <div className="space-y-3">
                 <input
                   type="text"
                   value={characterName}
                   onChange={(e) => setCharacterName(e.target.value)}
-                  placeholder="Character name"
+                  placeholder="角色名称"
                   className="w-full px-3 py-2 bg-[#1f1f22] border border-white/10 rounded-lg text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-blue-500/50"
                 />
                 <input
                   type="text"
                   value={characterDesc}
                   onChange={(e) => setCharacterDesc(e.target.value)}
-                  placeholder="Character description (e.g. 28yo woman, short hair, business attire)"
+                  placeholder="角色描述（例如：28岁女性，短发，商务着装）"
                   className="w-full px-3 py-2 bg-[#1f1f22] border border-white/10 rounded-lg text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-blue-500/50"
                 />
                 <textarea
                   value={dialogue}
                   onChange={(e) => setDialogue(e.target.value)}
                   rows={2}
-                  placeholder="Dialogue lines..."
+                  placeholder="对话台词..."
                   className="w-full px-3 py-2 bg-[#1f1f22] border border-white/10 rounded-lg text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-blue-500/50 resize-none"
                 />
               </div>
@@ -494,16 +634,16 @@ export default function AdVideoStep({
                 value={videoPrompt}
                 onChange={(e) => setVideoPrompt(e.target.value)}
                 rows={6}
-                placeholder="Click 'Optimize Prompt' to auto-generate, or enter manually..."
+                placeholder="点击「优化提示词」自动生成，或手动输入..."
                 className="w-full px-3 py-2 bg-[#1f1f22] border border-white/10 rounded-lg text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-blue-500/50 resize-none"
               />
             </div>
 
-            {/* Duration Selector */}
+            {/* Duration Selector — Agnes V2 max ~18s (441 frames @ 24fps) */}
             <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-4">
-              <label className="text-xs font-semibold text-slate-300 block mb-3">Video Duration</label>
+              <label className="text-xs font-semibold text-slate-300 block mb-3">视频时长</label>
               <div className="flex gap-2">
-                {[5, 10, 15, 20, 25, 30].map((sec) => (
+                {[5, 10, 15, 18].map((sec) => (
                   <button
                     key={sec}
                     onClick={() => setVideoDuration(sec)}
@@ -518,6 +658,9 @@ export default function AdVideoStep({
                   </button>
                 ))}
               </div>
+              <p className="text-[10px] text-slate-500 mt-2">
+                Model max ~18s per clip. For longer ads, generate multiple clips and merge on Timeline.
+              </p>
             </div>
 
             {/* Generate Video Button */}
@@ -546,7 +689,7 @@ export default function AdVideoStep({
                 {videoStatus === "generating" && (
                   <div className="mb-4 flex items-center gap-2 text-yellow-400 text-sm">
                     <div className="w-4 h-4 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
-                    <span>Submitting to Agnes API, please wait...</span>
+                    <span>正在提交至 Agnes API，请稍候...</span>
                   </div>
                 )}
 
@@ -554,7 +697,7 @@ export default function AdVideoStep({
                 {videoProgress > 0 && (
                   <div className="mb-4">
                     <div className="flex justify-between text-[10px] text-slate-400 mb-1">
-                      <span>Progress</span>
+                      <span>进度</span>
                       <span className="text-blue-400 font-bold">{videoProgress}%</span>
                     </div>
                     <div className="w-full h-2 bg-[#1f1f22] rounded-full overflow-hidden">
@@ -608,10 +751,14 @@ export default function AdVideoStep({
               <div className="bg-red-950/20 border border-red-900/30 rounded-xl p-4">
                 <div className="flex items-center gap-2 mb-2">
                   <AlertTriangle className="w-4 h-4 text-red-400" />
-                  <span className="text-xs font-semibold text-red-300">Error</span>
+                  <span className="text-xs font-semibold text-red-300">错误</span>
                 </div>
                 <p className="text-xs text-red-300 break-words">{error}</p>
-                <p className="text-[10px] text-slate-500 mt-2">Please modify your prompt and try again.</p>
+                <p className="text-[10px] text-slate-500 mt-2">
+                  {/server|fetch|network|localhost/i.test(error || "")
+                    ? "This is a connection issue, not a prompt issue. Restart the local server and hard-refresh."
+                    : "Check API key, reference image, and prompt, then retry."}
+                </p>
               </div>
             )}
 

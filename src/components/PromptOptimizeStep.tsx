@@ -399,7 +399,7 @@ export default function PromptOptimizeStep({
           {/* Style Preset */}
           <div>
             <label className="block text-xs font-medium text-slate-400 mb-1">
-              Visual Style
+              视觉风格
             </label>
             <input
               type="text"
@@ -418,7 +418,7 @@ export default function PromptOptimizeStep({
                 Character Description
               </label>
               <span className="text-[10px] text-slate-500">
-                Optional but recommended
+                可选但推荐
               </span>
             </div>
             <textarea
@@ -431,8 +431,8 @@ export default function PromptOptimizeStep({
               }}
             />
             <p className="text-[10px] text-slate-500 leading-relaxed">
-              Leave empty and the pipeline will auto-extract from your prompt.
-              Or describe manually for more control.
+              留空则流水线将从提示词中自动提取角色描述。
+              或手动输入以获得更多控制。
             </p>
           </div>
 
@@ -452,15 +452,15 @@ export default function PromptOptimizeStep({
             pipelineState === "generating_anchor" ? (
               <>
                 <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                {pipelineState === "optimizing" && "Optimizing Prompt..."}
-                {pipelineState === "extracting" && "Extracting Character..."}
+                {pipelineState === "optimizing" && "优化提示词中..."}
+                {pipelineState === "extracting" && "提取角色描述..."}
                 {pipelineState === "generating_anchor" &&
-                  "Generating Character Anchor..."}
+                  "正在生成角色锚点..."}
               </>
             ) : (
               <>
                 <Wand2 className="w-4 h-4 text-orange-300" />
-                Run Pipeline (Optimize → Extract → Anchor)
+                执行流水线（优化 → 提取 → 锚定）
               </>
             )}
           </button>
@@ -475,7 +475,7 @@ export default function PromptOptimizeStep({
               <RefreshCw
                 className={`w-3.5 h-3.5 ${pipelineState === "generating_anchor" ? "animate-spin" : ""}`}
               />
-              Regenerate Character Anchor
+              重新生成角色锚点
             </button>
           )}
 
@@ -485,7 +485,7 @@ export default function PromptOptimizeStep({
             className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 border border-white/10 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all"
           >
             <SkipForward className="w-3.5 h-3.5" />
-            Skip Pipeline — Edit Prompts Directly
+            跳过流水线 — 直接编辑提示词
           </button>
         </div>
 
@@ -493,7 +493,7 @@ export default function PromptOptimizeStep({
         <div className="bg-[#1a1a1c] rounded-xl border border-white/5 p-5 flex flex-col justify-between space-y-4">
           <div className="space-y-3 flex-1">
             <h3 className="text-sm font-semibold text-slate-200">
-              Optimized Results
+              优化结果
             </h3>
 
             {/* Generation Logs */}
@@ -517,7 +517,7 @@ export default function PromptOptimizeStep({
             <div className="space-y-3 mt-2">
               <div>
                 <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
-                  Image Prompt
+                  图片提示词
                 </label>
                 <textarea
                   className="w-full h-20 px-3 py-2 bg-[#1f1f22] border border-white/10 rounded-lg text-slate-200 text-xs focus:outline-none focus:border-orange-500/50 resize-none leading-relaxed"
@@ -530,7 +530,7 @@ export default function PromptOptimizeStep({
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
-                  Video Prompt
+                  视频提示词
                 </label>
                 <textarea
                   className="w-full h-20 px-3 py-2 bg-[#1f1f22] border border-white/10 rounded-lg text-slate-200 text-xs focus:outline-none focus:border-orange-500/50 resize-none leading-relaxed"

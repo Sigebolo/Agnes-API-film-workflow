@@ -659,7 +659,7 @@ export default function AdVideoStep({
                 ))}
               </div>
               <p className="text-[10px] text-slate-500 mt-2">
-                Model max ~18s per clip. For longer ads, generate multiple clips and merge on Timeline.
+                每片段最长约18秒。如需更长广告，请生成多个片段并在时间线上合并。
               </p>
             </div>
 
@@ -672,12 +672,12 @@ export default function AdVideoStep({
               {isGenerating ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin" />
-                  {videoStatus === "polling" ? "Rendering..." : "Generating..."}
+                  {videoStatus === "polling" ? "渲染中..." : "生成中..."}
                 </>
               ) : (
                 <>
                   <Play className="w-4 h-4" />
-                  Generate {videoDuration}s Video
+                  生成 {videoDuration} 秒视频
                 </>
               )}
             </button>
@@ -711,13 +711,13 @@ export default function AdVideoStep({
 
                 {/* Status */}
                 <div className="inline-block bg-[#1f1f22] border border-white/5 px-3 py-1.5 rounded-lg text-xs font-medium text-blue-400 font-mono shadow-inner animate-pulse mb-4">
-                  ⚡ {pollStatus || "Initializing..."}
+                  ⚡ {pollStatus || "初始化中..."}
                 </div>
 
                 {/* Logs */}
                 <div className="bg-[#1f1f22] border border-white/5 rounded-lg p-3 text-left font-mono text-[10px] space-y-1.5 shadow-inner max-h-48 overflow-y-auto">
                   <div className="text-xs font-semibold text-slate-400 border-b border-white/5 pb-1 mb-2">
-                    RENDER PIPELINE LOGS
+                    渲染流程日志
                   </div>
                   {videoLogs.map((log, idx) => {
                     const isLast = idx === videoLogs.length - 1;

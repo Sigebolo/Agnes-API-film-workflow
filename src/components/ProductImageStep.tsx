@@ -450,13 +450,13 @@ export default function ProductImageStep({
         <div className="grid lg:grid-cols-3 gap-6">
           <div className="space-y-4">
             <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-4">
-              <span className="text-xs font-semibold text-slate-300 block mb-3">Input Method</span>
+              <span className="text-xs font-semibold text-slate-300 block mb-3">输入方式</span>
               <div className="flex gap-2">
                 {(
                   [
-                    ["upload", "Upload", Upload],
-                    ["text", "AI Generate", Type],
-                    ["prompt", "Manual Prompt", ImageIcon],
+                    ["upload", "上传", Upload],
+                    ["text", "AI 生成", Type],
+                    ["prompt", "手动提示词", ImageIcon],
                   ] as const
                 ).map(([mode, label, Icon]) => (
                   <button
@@ -490,7 +490,7 @@ export default function ProductImageStep({
             {inputMode === "text" && (
               <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-4">
                 <span className="text-xs font-semibold text-slate-300 block mb-3">
-                  Product / Service Description
+                  产品/服务描述
                 </span>
                 <textarea
                   value={textDesc}
@@ -506,7 +506,7 @@ export default function ProductImageStep({
               <>
                 <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-4">
                   <span className="text-xs font-semibold text-slate-300 block mb-3">
-                    Reference Image (optional)
+                    参考图片（可选）
                   </span>
                   <DragDropZone
                     onImageDrop={setSourceImage}
@@ -515,7 +515,7 @@ export default function ProductImageStep({
                   />
                 </div>
                 <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-4">
-                  <span className="text-xs font-semibold text-slate-300 block mb-3">Your Prompt</span>
+                  <span className="text-xs font-semibold text-slate-300 block mb-3">您的提示词</span>
                   <textarea
                     value={manualPrompt}
                     onChange={(e) => setManualPrompt(e.target.value)}
@@ -535,12 +535,12 @@ export default function ProductImageStep({
               {isGenerating ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin" />
-                  Generating...
+                  生成中...
                 </>
               ) : (
                 <>
                   <ImageIcon className="w-4 h-4" />
-                  {inputMode === "prompt" ? "Generate Image" : "Generate Marketing Images"}
+                  {inputMode === "prompt" ? "生成图片" : "生成营销图片"}
                 </>
               )}
             </button>

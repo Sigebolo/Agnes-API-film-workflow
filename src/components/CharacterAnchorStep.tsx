@@ -294,7 +294,7 @@ export default function CharacterAnchorStep({
         {/* Right Column - Preview */}
         <div className="bg-[#1a1a1c] rounded-xl border border-white/5 p-5 flex flex-col justify-between space-y-4">
           <div className="space-y-3 flex-1">
-            <h3 className="text-sm font-semibold text-slate-200">Character Reference Preview</h3>
+            <h3 className="text-sm font-semibold text-slate-200">角色参考图预览</h3>
 
             {/* Generation Logs */}
             {genLogs.length > 0 && (
@@ -309,8 +309,8 @@ export default function CharacterAnchorStep({
             )}
             <p className="text-xs text-slate-500 leading-relaxed">
               {characterAnchor 
-                ? "Character anchor is set. This will be used as reference for all image generations."
-                : "Generate a character anchor above to enable consistent character visuals across all clips."}
+                ? "角色锚点已设置，将作为所有图片生成的参考。"
+                : "在上方生成角色锚点，以确保所有片段中角色视觉一致。"}
             </p>
 
             {characterAnchor ? (
@@ -325,7 +325,7 @@ export default function CharacterAnchorStep({
                   />
                   <div className="absolute top-2 right-2 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full text-[10px] font-semibold flex items-center gap-1">
                     <CheckCircle2 className="w-3 h-3" />
-                    Anchor Set
+                    锚点已设置
                   </div>
                 </div>
 
@@ -351,7 +351,7 @@ export default function CharacterAnchorStep({
 
                 {/* Description Preview */}
                 <div className="bg-[#131315] border border-white/5 rounded-lg p-3">
-                  <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">Character Description</p>
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">角色描述</p>
                   <p className="text-xs text-slate-300 leading-relaxed">{characterAnchor.description}</p>
                 </div>
               </div>
@@ -360,7 +360,7 @@ export default function CharacterAnchorStep({
                 <div className="w-16 h-16 rounded-full bg-[#1f1f22] flex items-center justify-center text-slate-600 mb-3">
                   <User className="w-8 h-8" />
                 </div>
-                <p className="text-sm text-slate-500">No character anchor yet</p>
+                <p className="text-sm text-slate-500">尚未设置角色锚点</p>
               </div>
             )}
           </div>
@@ -371,7 +371,7 @@ export default function CharacterAnchorStep({
               disabled={!characterAnchor}
               className="px-5 py-2.5 bg-purple-500 hover:bg-purple-600 disabled:bg-slate-800/60 disabled:text-slate-600 text-white rounded-lg font-bold text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-purple-950/20"
             >
-              Step 2: Generate Image
+              步骤 2：生成图像
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>

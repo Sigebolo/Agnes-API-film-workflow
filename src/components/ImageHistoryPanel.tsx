@@ -53,7 +53,7 @@ export default function ImageHistoryPanel({
     return (
       <div className="bg-[#161618] border border-white/5 rounded-xl p-4 text-center">
         <History className="w-6 h-6 text-slate-600 mx-auto mb-2" />
-        <p className="text-xs text-slate-500">No images yet</p>
+        <p className="text-xs text-slate-500">暂无图片</p>
       </div>
     );
   }
@@ -65,7 +65,7 @@ export default function ImageHistoryPanel({
         <div className="flex items-center gap-1.5">
           <History className="w-3.5 h-3.5 text-orange-500" />
           <span className="text-xs font-semibold text-slate-400">
-            History ({images.length})
+            历史记录（{images.length}）
           </span>
         </div>
         {images.length >= 2 && onCompare && (

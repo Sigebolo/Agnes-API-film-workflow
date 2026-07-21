@@ -755,7 +755,7 @@ export default function VideoGenerateStep({
                   onClick={handleContinueChain}
                   disabled={!canContinueChain}
                   className="px-5 py-2.5 bg-blue-600/20 hover:bg-blue-600/30 disabled:opacity-40 disabled:cursor-not-allowed text-blue-300 border border-blue-500/30 rounded-lg font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
-                  title="Use last frame as reference for the next video segment"
+                  title="使用最后一帧作为下一段视频的参考图"
                 >
                   {isExtractingFrame ? (
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />

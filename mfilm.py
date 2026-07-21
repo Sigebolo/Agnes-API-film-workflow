@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-MFilm-CLI - Motion Film Management Interface
-Industrial-grade film asset management system.
+MFilm-CLI - AI 影片资产管理系统
 
-Usage:
-    mfilm create --prompt "Scene description" --duration 15 --label "Shot_01"
+用法:
+    mfilm create --prompt "场景描述" --duration 15 --label "镜头_01"
     mfilm status --all
-    mfilm status --id <TaskID>
+    mfilm status --id <任务ID>
     mfilm sync --output-dir "D:/Cinematic_Vault"
+    mfilm logo --product "产品名" --desc "产品描述"
 """
 
 import argparse
@@ -309,7 +309,7 @@ def submit_task(api_key: str, prompt: str, image_url: str = None,
 
     # Retry on rate limit or timeout
     for attempt in range(5):
-        progress = ProgressIndicator("Submitting")
+        progress = ProgressIndicator("提交中")
         progress.start()
         try:
             data = api_request("POST", SUBMIT_URL, api_key, body, timeout=300)
@@ -318,13 +318,13 @@ def submit_task(api_key: str, prompt: str, image_url: str = None,
 
         if data.get("error") == "rate_limited":
             wait = 60 * (attempt + 1)  # 60s, 120s, 180s...
-            print(f"  [Rate limited, waiting {wait}s...]")
+            print(f"  [速率限制，等待 {wait} 秒...]")
             time.sleep(wait)
             continue
 
         if data.get("error") in ("timeout", "connection_error", "service_unavailable"):
             wait = 15 * (attempt + 1)
-            print(f"  [Network error, waiting {wait}s before retry...]")
+            print(f"  [网络错误，等待 {wait} 秒后重试...]")
             time.sleep(wait)
             continue
 
@@ -365,18 +365,18 @@ def poll_task(api_key: str, video_id: str, timeout: int = 600) -> dict:
 
         # Zombie detection: stuck at 0% for >10 minutes
         if progress == 0 and elapsed > zombie_threshold and status in ("queued", "not_start", "unknown"):
-            print(f"  [!] Zombie task warning: waited {elapsed}s, progress still 0%. May need manual intervention.")
+            print(f"  [!] 僵尸任务警告：已等待 {elapsed} 秒，进度仍为 0%。可能需要手动干预。")
 
         if status != last_status:
             status_icons = {
-                "not_start": "[Queued]",
-                "queued": "[Queued]",
-                "processing": "[Rendering]",
-                "running": "[Rendering]",
-                "in_progress": "[Rendering]",
-                "completed": "[Done]",
-                "success": "[Done]",
-                "failed": "[Failed]",
+                "not_start": "[排队中]",
+                "queued": "[排队中]",
+                "processing": "[渲染中]",
+                "running": "[渲染中]",
+                "in_progress": "[渲染中]",
+                "completed": "[完成]",
+                "success": "[完成]",
+                "failed": "[失败]",
             }
             icon = status_icons.get(status, f"[{status}]")
             bar = render_bar(progress)
@@ -402,7 +402,7 @@ def poll_task(api_key: str, video_id: str, timeout: int = 600) -> dict:
         time.sleep(10)
 
     # Timeout — final check
-    print(f"  [Timeout, checking final status...]")
+    print(f"  [超时，检查最终状态...]")
     data = api_request("GET", f"{POLL_URL}{resolved_id}", api_key, timeout=30)
 
     if data.get("status", "").lower() in ("completed", "success"):
@@ -418,7 +418,7 @@ def download_video(url: str, output_path: str) -> bool:
     import requests
 
     try:
-        progress = ProgressIndicator("Downloading")
+        progress = ProgressIndicator("下载中")
         progress.start()
         try:
             resp = requests.get(url, timeout=120, stream=True)
@@ -431,11 +431,11 @@ def download_video(url: str, output_path: str) -> bool:
             progress.stop()
 
         size_mb = os.path.getsize(output_path) / (1024 * 1024)
-        print(f"  [Saved {size_mb:.1f}MB -> {output_path}]")
+        print(f"  [已保存 {size_mb:.1f}MB → {output_path}]")
         return True
 
     except Exception as e:
-        print(f"  [Download failed: {e}]")
+        print(f"  [下载失败: {e}]")
         return False
 
 
@@ -479,13 +479,79 @@ def concat_videos(video_paths: list, output_path: str) -> bool:
             os.remove(list_file)
 
 
+def cmd_logo(args):
+    """生成 Logo 设计。"""
+    config = load_config()
+    api_key = args.api_key or config.get("api_key")
+    if not api_key:
+        print("[错误] 未设置 API 密钥。请运行: mfilm config --api-key <密钥>")
+        sys.exit(1)
+
+    product = {
+        "name": args.product,
+        "description": args.desc or "",
+        "category": "digital",
+        "style": "modern",
+        "targetPlatform": "general",
+    }
+
+    count = min(max(args.count, 1), 5)
+    output_dir = args.output_dir or config.get("output_dir", ".")
+    os.makedirs(output_dir, exist_ok=True)
+
+    print(f"[Logo] 为「{args.product}」生成 {count} 个风格变体...")
+
+    # Call the logo generate API
+    body = {
+        "product": product,
+        "variantCount": count,
+    }
+    data = api_request("POST", f"{AGNES_API_BASE}/api/logo/generate", api_key, body)
+
+    if "error" in data:
+        print(f"[错误] {data['error']}")
+        sys.exit(1)
+
+    prompts = data.get("variants", [])
+    print(f"[Logo] 收到 {len(prompts)} 个提示词")
+
+    # Generate images for each prompt
+    import requests
+    for i, prompt in enumerate(prompts):
+        print(f"  [变体 {i+1}/{len(prompts)}] 生成图片...")
+        img_data = api_request("POST", f"{AGNES_API_BASE}/v1/images/generations", api_key, {
+            "model": "agnes-image-2.1-flash",
+            "prompt": prompt,
+            "n": 1,
+            "size": "1024x1024",
+        })
+
+        if "error" in img_data:
+            print(f"  [错误] {img_data['error']}")
+            continue
+
+        url = img_data.get("data", [{}])[0].get("url", "")
+        if url:
+            filename = f"logo_{i+1}.png"
+            filepath = os.path.join(output_dir, filename)
+            download_video(url, filepath)
+        else:
+            print(f"  [变体 {i+1}] 无 URL")
+
+        # Rate limit between requests
+        if i < len(prompts) - 1:
+            time.sleep(3)
+
+    print(f"[Logo] 完成！文件保存在: {output_dir}")
+
+
 def cmd_chain(args):
     """Execute a long video chain: generate multiple scenes sequentially,
     using each scene's last frame as the next scene's reference image."""
     config = load_config()
     api_key = args.api_key or config.get("api_key")
     if not api_key:
-        print("[Error] No API key. Run: mfilm config --api-key <key>")
+        print("[错误] 未设置 API 密钥。请运行: mfilm config --api-key <密钥>")
         sys.exit(1)
 
     # Load scenes from JSON or inline prompts
@@ -496,7 +562,7 @@ def cmd_chain(args):
 
     if args.scenes:
         if not os.path.exists(args.scenes):
-            print(f"[Error] Scene file not found: {args.scenes}")
+            print(f"[错误] 未找到场景文件: {args.scenes}")
             sys.exit(1)
         with open(args.scenes, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -512,11 +578,11 @@ def cmd_chain(args):
                 "label": f"chain_{i+1:02d}",
             })
     else:
-        print("[Error] Need --scenes <file.json> or --prompt \"scene 1\" --prompt \"scene 2\"")
+        print("[错误] 需要 --scenes <文件.json> 或 --prompt \"场景1\" --prompt \"场景2\"")
         sys.exit(1)
 
     if not scenes:
-        print("[Error] No scenes defined")
+        print("[错误] 未定义场景")
         sys.exit(1)
 
     output_dir = args.output_dir or config.get("output_dir", "./chain_output")
@@ -674,7 +740,7 @@ def cmd_create(args):
     api_key = args.api_key or config.get("api_key")
 
     if not api_key:
-        print("[Error] No API key. Run: mfilm config --api-key <key>")
+        print("[错误] 未设置 API 密钥。请运行: mfilm config --api-key <密钥>")
         sys.exit(1)
 
     # R2: Load DNA preset if specified
@@ -866,7 +932,7 @@ def cmd_status(args):
             print(f"{label:<20} {status:<15} {created:<20} {tid[:16]}...")
 
     else:
-        print("[Error] Specify --all or --id <TaskID>")
+        print("[错误] 请指定 --all 或 --id <任务ID>")
         sys.exit(1)
 
 
@@ -876,7 +942,7 @@ def cmd_sync(args):
     api_key = args.api_key or config.get("api_key")
 
     if not api_key:
-        print("[Error] No API key. Run: mfilm config --api-key <key>")
+        print("[错误] 未设置 API 密钥。请运行: mfilm config --api-key <密钥>")
         sys.exit(1)
 
     output_dir = args.output_dir or config.get("output_dir", "./downloads")
@@ -956,7 +1022,7 @@ def cmd_dna(args):
     """Manage character DNA presets."""
     if args.dna_action == "save":
         if not args.name or not args.traits:
-            print("[Error] Need --name and --traits")
+            print("[错误] 需要 --name 和 --traits 参数")
             sys.exit(1)
         data = save_dna(args.name, args.anchor or "", args.traits)
         print(f"[DNA saved: {data['name']}]")
@@ -965,7 +1031,7 @@ def cmd_dna(args):
 
     elif args.dna_action == "load":
         if not args.name:
-            print("[Error] Need --name")
+            print("[错误] 需要 --name 参数")
             sys.exit(1)
         dna = load_dna(args.name)
         if not dna:
@@ -992,7 +1058,7 @@ def cmd_dna(args):
 
     elif args.dna_action == "delete":
         if not args.name:
-            print("[Error] Need --name")
+            print("[错误] 需要 --name 参数")
             sys.exit(1)
         if delete_dna(args.name):
             print(f"[Deleted: {args.name}]")
@@ -1013,12 +1079,12 @@ def cmd_daemon(args):
                 print(f"[Daemon not running (stale PID file: {pid})]")
                 os.remove(DAEMON_PID_FILE)
         else:
-            print("[Daemon not running]")
+            print("[守护进程未运行]")
         return
 
     if args.daemon_action == "stop":
         if not os.path.exists(DAEMON_PID_FILE):
-            print("[Daemon not running]")
+            print("[守护进程未运行]")
             return
         with open(DAEMON_PID_FILE, "r") as f:
             pid = int(f.read().strip())
@@ -1069,7 +1135,7 @@ def _daemon_loop(args):
     config = load_config()
     api_key = args.api_key or config.get("api_key")
     if not api_key:
-        print("[Daemon] No API key. Run: mfilm config --api-key <key>")
+        print("[守护进程] 未设置 API 密钥。请运行: mfilm config --api-key <密钥>")
         return
 
     output_dir = args.output_dir or config.get("output_dir", "./downloads")
@@ -1097,7 +1163,7 @@ def _daemon_loop(args):
     # Cleanup PID file
     if os.path.exists(DAEMON_PID_FILE):
         os.remove(DAEMON_PID_FILE)
-    print("[Daemon] Stopped")
+    print("[守护进程] 已停止")
 
 
 def _daemon_check_once(api_key: str, output_dir: str):
@@ -1159,7 +1225,7 @@ def _daemon_check_once(api_key: str, output_dir: str):
             save_state(state)
 
     if downloaded > 0:
-        print(f"[Daemon] Downloaded {downloaded} video(s)")
+        print(f"[守护进程] 已下载 {downloaded} 个视频")
 
 
 def cmd_batch(args):
@@ -1172,10 +1238,10 @@ def cmd_batch(args):
         tasks = json.load(f)
 
     if not isinstance(tasks, list):
-        print("[Error] JSON must be an array of tasks")
+        print("[错误] JSON 必须是任务数组")
         sys.exit(1)
 
-    print(f"[Batch: {len(tasks)} task(s)]")
+    print(f"[批量模式: {len(tasks)} 个任务]")
 
     for i, task in enumerate(tasks):
         print(f"\n{'='*50}")
@@ -1198,85 +1264,93 @@ def cmd_batch(args):
 def main():
     parser = argparse.ArgumentParser(
         prog="mfilm",
-        description="MFilm-CLI - Motion Film Management Interface",
+        description="MFilm-CLI — AI 影片资产管理系统",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  mfilm create --prompt "Product showcase" --duration 15 --label "Ad_01"
-  mfilm create --use-dna "Maoning" --prompt "在书房说话" --async
-  mfilm dna save "Maoning" --anchor "https://..." --traits "20岁女孩"
+示例:
+  mfilm create --prompt "产品展示" --duration 15 --label "广告_01"
+  mfilm create --use-dna "猫宁" --prompt "在书房说话" --async
+  mfilm dna save "猫宁" --anchor "https://..." --traits "20岁女孩"
   mfilm dna list
   mfilm status --all
   mfilm status --id vid_xxxxx
   mfilm sync --output-dir "D:/Cinematic_Vault"
   mfilm config --api-key "sk-xxx"
   mfilm batch --file tasks.json
-  mfilm chain --prompt "Scene 1" --prompt "Scene 2" --duration 10
-  mfilm chain --scenes chain.json --output-dir ./videos
+  mfilm chain --prompt "场景1" --prompt "场景2" --duration 10
+  mfilm logo --product "产品名" --desc "产品描述" --count 3
         """
     )
 
-    subparsers = parser.add_subparsers(dest="command", help="Command to run")
+    subparsers = parser.add_subparsers(dest="command", help="可用命令")
 
     # create
-    p_create = subparsers.add_parser("create", help="Create rendering task")
-    p_create.add_argument("--prompt", "-p", required=True, help="Scene description")
-    p_create.add_argument("--duration", "-d", type=int, default=15, help="Duration in seconds (5-30)")
-    p_create.add_argument("--anchor-image", "-i", help="Reference image URL")
-    p_create.add_argument("--use-dna", dest="use_dna", help="Use DNA preset by name")
-    p_create.add_argument("--label", "-l", help="Asset label/name")
-    p_create.add_argument("--output-dir", "-o", help="Download directory")
-    p_create.add_argument("--api-key", help="Agnes API key")
-    p_create.add_argument("--async", dest="async_mode", action="store_true", help="Don't wait for completion")
+    p_create = subparsers.add_parser("create", help="创建渲染任务")
+    p_create.add_argument("--prompt", "-p", required=True, help="场景描述")
+    p_create.add_argument("--duration", "-d", type=int, default=15, help="视频时长，单位秒（5-30）")
+    p_create.add_argument("--anchor-image", "-i", help="参考图片 URL")
+    p_create.add_argument("--use-dna", dest="use_dna", help="使用指定 DNA 预设")
+    p_create.add_argument("--label", "-l", help="资产标签/名称")
+    p_create.add_argument("--output-dir", "-o", help="下载目录")
+    p_create.add_argument("--api-key", help="Agnes API 密钥")
+    p_create.add_argument("--async", dest="async_mode", action="store_true", help="异步模式，不等待完成")
 
     # status
-    p_status = subparsers.add_parser("status", help="Check task status")
-    p_status.add_argument("--all", "-a", action="store_true", help="Show all tasks")
-    p_status.add_argument("--id", help="Specific task ID")
-    p_status.add_argument("--api-key", help="Agnes API key")
+    p_status = subparsers.add_parser("status", help="查看任务状态")
+    p_status.add_argument("--all", "-a", action="store_true", help="显示所有任务")
+    p_status.add_argument("--id", help="指定任务 ID")
+    p_status.add_argument("--api-key", help="Agnes API 密钥")
 
     # sync
-    p_sync = subparsers.add_parser("sync", help="Sync completed videos locally")
-    p_sync.add_argument("--output-dir", "-o", help="Sync directory")
-    p_sync.add_argument("--api-key", help="Agnes API key")
+    p_sync = subparsers.add_parser("sync", help="同步已完成的视频到本地")
+    p_sync.add_argument("--output-dir", "-o", help="同步目录")
+    p_sync.add_argument("--api-key", help="Agnes API 密钥")
 
     # config
-    p_config = subparsers.add_parser("config", help="Manage configuration")
-    p_config.add_argument("--api-key", help="Set API key")
-    p_config.add_argument("--output-dir", help="Set default output directory")
-    p_config.add_argument("--set", help="Set config key=value")
-    p_config.add_argument("--show", action="store_true", help="Show current config")
+    p_config = subparsers.add_parser("config", help="管理配置")
+    p_config.add_argument("--api-key", help="设置 API 密钥")
+    p_config.add_argument("--output-dir", help="设置默认输出目录")
+    p_config.add_argument("--set", help="设置配置项 key=value")
+    p_config.add_argument("--show", action="store_true", help="显示当前配置")
 
     # batch
-    p_batch = subparsers.add_parser("batch", help="Batch create from JSON")
-    p_batch.add_argument("--file", "-f", required=True, help="JSON file with tasks")
-    p_batch.add_argument("--api-key", help="Agnes API key")
-    p_batch.add_argument("--output-dir", "-o", help="Download directory")
+    p_batch = subparsers.add_parser("batch", help="批量创建任务（JSON 文件）")
+    p_batch.add_argument("--file", "-f", required=True, help="任务 JSON 文件")
+    p_batch.add_argument("--api-key", help="Agnes API 密钥")
+    p_batch.add_argument("--output-dir", "-o", help="下载目录")
 
     # dna (R2)
-    p_dna = subparsers.add_parser("dna", help="Manage character DNA presets")
-    p_dna.add_argument("dna_action", choices=["save", "load", "list", "delete"], help="Action to perform")
-    p_dna.add_argument("--name", "-n", help="Preset name")
-    p_dna.add_argument("--anchor", "-a", help="Anchor image URL")
-    p_dna.add_argument("--traits", "-t", help="Character traits description")
+    p_dna = subparsers.add_parser("dna", help="管理角色 DNA 预设")
+    p_dna.add_argument("dna_action", choices=["save", "load", "list", "delete"], help="操作类型")
+    p_dna.add_argument("--name", "-n", help="预设名称")
+    p_dna.add_argument("--anchor", "-a", help="锚点图片 URL")
+    p_dna.add_argument("--traits", "-t", help="角色特征描述")
 
     # daemon (R3)
-    p_daemon = subparsers.add_parser("daemon", help="Manage background daemon process")
-    p_daemon.add_argument("daemon_action", choices=["start", "stop", "status"], help="Action to perform")
-    p_daemon.add_argument("--api-key", help="Agnes API key")
-    p_daemon.add_argument("--output-dir", "-o", help="Download directory")
-    p_daemon.add_argument("--interval", type=int, default=60, help="Check interval in seconds (default: 60)")
+    p_daemon = subparsers.add_parser("daemon", help="管理后台守护进程")
+    p_daemon.add_argument("daemon_action", choices=["start", "stop", "status"], help="操作类型")
+    p_daemon.add_argument("--api-key", help="Agnes API 密钥")
+    p_daemon.add_argument("--output-dir", "-o", help="下载目录")
+    p_daemon.add_argument("--interval", type=int, default=60, help="检查间隔，单位秒（默认 60）")
 
     # chain (long video)
-    p_chain = subparsers.add_parser("chain", help="Generate long video from scene chain")
-    p_chain.add_argument("--scenes", "-s", help="JSON file with scene definitions")
-    p_chain.add_argument("--prompt", "-p", action="append", help="Scene prompt (repeat for multiple scenes)")
-    p_chain.add_argument("--duration", "-d", type=int, default=15, help="Duration per scene in seconds (default: 15)")
-    p_chain.add_argument("--initial-image", help="First scene reference image URL")
-    p_chain.add_argument("--dna", help="DNA preset name to use")
-    p_chain.add_argument("--output-dir", "-o", help="Output directory")
-    p_chain.add_argument("--no-concat", action="store_true", help="Don't auto-concatenate clips")
-    p_chain.add_argument("--api-key", help="Agnes API key")
+    p_chain = subparsers.add_parser("chain", help="从场景链生成长视频")
+    p_chain.add_argument("--scenes", "-s", help="场景定义 JSON 文件")
+    p_chain.add_argument("--prompt", "-p", action="append", help="场景提示词（重复使用可添加多个场景）")
+    p_chain.add_argument("--duration", "-d", type=int, default=15, help="每场景时长，单位秒（默认 15）")
+    p_chain.add_argument("--initial-image", help="第一场景参考图片 URL")
+    p_chain.add_argument("--dna", help="DNA 预设名称")
+    p_chain.add_argument("--output-dir", "-o", help="输出目录")
+    p_chain.add_argument("--no-concat", action="store_true", help="不自动合并片段")
+    p_chain.add_argument("--api-key", help="Agnes API 密钥")
+
+    # logo
+    p_logo = subparsers.add_parser("logo", help="生成 Logo 设计")
+    p_logo.add_argument("--product", required=True, help="产品名称")
+    p_logo.add_argument("--desc", "--description", help="产品描述")
+    p_logo.add_argument("--count", "-c", type=int, default=3, help="生成变体数量（3 或 5）")
+    p_logo.add_argument("--output-dir", "-o", help="下载目录")
+    p_logo.add_argument("--api-key", help="Agnes API 密钥")
 
     args = parser.parse_args()
 
@@ -1293,6 +1367,7 @@ Examples:
         "dna": cmd_dna,
         "daemon": cmd_daemon,
         "chain": cmd_chain,
+        "logo": cmd_logo,
     }
 
     commands[args.command](args)

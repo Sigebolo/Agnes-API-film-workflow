@@ -152,7 +152,7 @@ export default function Timeline({
   const handleCompile = async () => {
     const validClips = clips.filter((c) => c.videoUrl);
     if (validClips.length === 0) {
-      setError("Please generate or paste video URLs for at least one clip before merging.");
+      setError("请至少为一个片段生成或粘贴视频 URL 后再合并。");
       return;
     }
 
@@ -167,7 +167,7 @@ export default function Timeline({
         mergedVoiceoverUrl: response.voiceoverUrl,
       });
     } catch (err: any) {
-      setError(err.message || "An error occurred while compiling your video.");
+      setError(err.message || "编译视频时出错。");
     } finally {
       onUpdateState({ isMerging: false });
     }
@@ -177,14 +177,14 @@ export default function Timeline({
     <div className="bg-[#161618] rounded-2xl border border-white/5 p-6 space-y-6" id="timeline-component">
       <div className="flex items-center justify-between border-b border-white/5 pb-4">
         <div>
-          <h2 className="text-xl font-semibold text-slate-100">4. Compile Master Movie</h2>
+          <h2 className="text-xl font-semibold text-slate-100">4. 时间线 — 合并与导出</h2>
           <p className="text-sm text-slate-400 mt-1">
-            Drag to reorder clips, insert scenes anywhere, or paste video URLs directly.
+            拖拽排序片段，任意位置插入场景，或直接粘贴视频 URL。
           </p>
         </div>
         <div className="bg-orange-500/10 text-orange-400 border border-orange-500/20 px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1">
           <Layers className="w-3 h-3" />
-          Sequence Editor
+          序列编辑器
         </div>
       </div>
 
@@ -200,7 +200,7 @@ export default function Timeline({
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
               <ListOrdered className="w-4 h-4 text-orange-500" />
-              Clip Timeline ({clips.length} scenes)
+              视频片段（{clips.length} 个场景）
             </h3>
             <button
               onClick={() => handleInsertAtIndex(clips.length)}
@@ -225,10 +225,10 @@ export default function Timeline({
                       <button
                         onClick={() => handleInsertAtIndex(index)}
                         className="w-full py-0.5 text-[10px] text-slate-600 hover:text-orange-400 hover:bg-orange-500/5 rounded transition-all flex items-center justify-center gap-1 opacity-0 hover:opacity-100 group"
-                        title="Insert scene here"
+                        title="在此插入场景"
                       >
                         <Plus className="w-3 h-3" />
-                        Insert scene between
+                        插入场景
                       </button>
                     </div>
                   )}
@@ -288,7 +288,7 @@ export default function Timeline({
                             onClick={(e) => handleMoveUp(index, e)}
                             disabled={index === 0}
                             className="p-1 hover:bg-white/5 text-slate-500 hover:text-slate-200 disabled:opacity-30 rounded transition-colors"
-                            title="Move Scene Up"
+                            title="上移"
                           >
                             <ArrowUp className="w-3.5 h-3.5" />
                           </button>
@@ -296,14 +296,14 @@ export default function Timeline({
                             onClick={(e) => handleMoveDown(index, e)}
                             disabled={index === clips.length - 1}
                             className="p-1 hover:bg-white/5 text-slate-500 hover:text-slate-200 disabled:opacity-30 rounded transition-colors"
-                            title="Move Scene Down"
+                            title="下移"
                           >
                             <ArrowDown className="w-3.5 h-3.5" />
                           </button>
                           <button
                             onClick={(e) => handleDelete(index, e)}
                             className="p-1 hover:bg-red-950/30 text-slate-500 hover:text-red-400 rounded transition-colors"
-                            title="Delete Scene"
+                            title="删除场景"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -314,7 +314,7 @@ export default function Timeline({
                       <input
                         type="text"
                         className="w-full px-3 py-1.5 bg-[#1f1f22] border border-white/10 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-orange-500/50"
-                        placeholder="Subtitle / narration for this scene..."
+                        placeholder="此场景的字幕/旁白..."
                         value={clip.subtitle || ""}
                         onChange={(e) => handleSubtitleChange(index, e.target.value)}
                         onClick={(e) => e.stopPropagation()}
@@ -325,7 +325,7 @@ export default function Timeline({
                         <input
                           type="text"
                           className="flex-1 min-w-0 px-2 py-1 bg-[#1f1f22] border border-white/5 rounded-lg text-[10px] text-slate-300 placeholder:text-slate-600 focus:outline-none focus:border-orange-500/30 font-mono"
-                          placeholder={clip.videoUrl || "Paste video URL here..."}
+                          placeholder={clip.videoUrl || "粘贴视频 URL..."}
                           value={editingVideoUrl[clip.id] || ""}
                           onChange={(e) => handleVideoUrlChange(clip.id, e.target.value)}
                         />
@@ -333,7 +333,7 @@ export default function Timeline({
                           <button
                             onClick={() => handleApplyVideoUrl(clip.id)}
                             className="px-2 py-1 bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 rounded text-[10px] font-semibold transition-colors flex items-center gap-1"
-                            title="Apply URL as clip video"
+                            title="应用 URL 作为片段视频"
                           >
                             <Upload className="w-3 h-3" />
                             Set
@@ -345,7 +345,7 @@ export default function Timeline({
                             target="_blank"
                             rel="noopener noreferrer"
                             className="p-1 text-slate-500 hover:text-green-400 transition-colors"
-                            title="Open video"
+                            title="打开视频"
                           >
                             <ExternalLink className="w-3.5 h-3.5" />
                           </a>
@@ -364,7 +364,7 @@ export default function Timeline({
                 className="w-full py-2 border border-dashed border-white/10 hover:border-orange-500/30 hover:bg-orange-500/5 rounded-xl text-xs text-slate-500 hover:text-orange-400 transition-all flex items-center justify-center gap-1.5"
               >
                 <Plus className="w-3 h-3" />
-                Add Scene at End
+                添加新场景（结尾）
               </button>
             </div>
           </div>
@@ -375,12 +375,12 @@ export default function Timeline({
           <div className="bg-[#1a1a1c] border border-white/5 rounded-2xl p-5 space-y-4">
             <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
               <Volume2 className="w-4 h-4 text-orange-500" />
-              Voiceover & Subtitle Presets
+              配音与字幕设置
             </h3>
 
             <div className="space-y-3">
               <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                Narration Speech Language
+                配音语言
               </label>
               <div className="grid grid-cols-1 gap-2">
                 <button
@@ -391,7 +391,7 @@ export default function Timeline({
                       : "border-white/10 bg-[#1f1f22] text-slate-400 hover:border-white/20"
                   }`}
                 >
-                  Chinese Voiceover (中文配音)
+                  中文配音
                 </button>
                 <button
                   onClick={() => setLang("en")}
@@ -401,7 +401,7 @@ export default function Timeline({
                       : "border-white/10 bg-[#1f1f22] text-slate-400 hover:border-white/20"
                   }`}
                 >
-                  English Voiceover (英文配音)
+                  英文配音
                 </button>
               </div>
             </div>
@@ -414,19 +414,19 @@ export default function Timeline({
               {state.isMerging ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                  Compiling & Stitching video...
+                  正在合并视频...
                 </>
               ) : (
                 <>
                   <Sparkles className="w-4 h-4 text-orange-300" />
-                  Stitch, Dub, & Render Long Video
+                  合并、配音、导出完整视频
                 </>
               )}
             </button>
 
             {clips.filter(c => c.videoUrl).length === 0 && (
               <p className="text-[10px] text-slate-500 text-center">
-                Generate or paste video URLs for clips above to enable compilation.
+                请为上方的片段生成或粘贴视频 URL 以启用编译。
               </p>
             )}
           </div>
@@ -436,7 +436,7 @@ export default function Timeline({
             <div className="space-y-3">
               <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
                 <Subtitles className="w-4 h-4 text-emerald-500" />
-                Compiled Masterpiece Preview
+                合并预览
               </h4>
               <div className="rounded-2xl overflow-hidden border border-white/5 bg-[#09090A] aspect-video relative">
                 <video
@@ -466,14 +466,14 @@ export default function Timeline({
                   className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all shadow-lg shadow-orange-950/20 cursor-pointer"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  Download Complete MP4
+                  下载完整 MP4
                 </a>
                 {state.mergedSubtitlesUrl && (
                   <a
                     href={state.mergedSubtitlesUrl}
                     download="subtitles.vtt"
                     className="py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer"
-                    title="Download VTT Subtitle File"
+                    title="下载字幕文件"
                   >
                     WebVTT
                   </a>

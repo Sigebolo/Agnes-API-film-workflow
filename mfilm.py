@@ -32,6 +32,7 @@ STATE_FILE = os.path.expanduser("~/.mfilm/state.json")
 TASKS_DIR = os.path.expanduser("~/.mfilm/tasks")
 
 AGNES_API_BASE = "https://apihub.agnes-ai.com"
+LOCAL_SERVER = "http://localhost:3000"
 SUBMIT_URL = f"{AGNES_API_BASE}/v1/videos"
 POLL_URL = f"{AGNES_API_BASE}/agnesapi?video_id="
 DNA_DIR = os.path.expanduser("~/.mfilm/dna")
@@ -501,12 +502,12 @@ def cmd_logo(args):
 
     print(f"[Logo] 为「{args.product}」生成 {count} 个风格变体...")
 
-    # Call the logo generate API
+    # Call the local server's logo generate API
     body = {
         "product": product,
         "variantCount": count,
     }
-    data = api_request("POST", f"{AGNES_API_BASE}/api/logo/generate", api_key, body)
+    data = api_request("POST", f"{LOCAL_SERVER}/api/logo/generate", api_key, body)
 
     if "error" in data:
         print(f"[错误] {data['error']}")
@@ -519,7 +520,7 @@ def cmd_logo(args):
     import requests
     for i, prompt in enumerate(prompts):
         print(f"  [变体 {i+1}/{len(prompts)}] 生成图片...")
-        img_data = api_request("POST", f"{AGNES_API_BASE}/v1/images/generations", api_key, {
+        img_data = api_request("POST", f"{LOCAL_SERVER}/api/proxy/images", api_key, {
             "model": "agnes-image-2.1-flash",
             "prompt": prompt,
             "n": 1,

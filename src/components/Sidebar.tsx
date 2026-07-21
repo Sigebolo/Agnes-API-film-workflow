@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Key, Megaphone, HelpCircle, AlertCircle, Sparkles, Folder, ChevronRight, Settings, Check, Save, Package, Image as ImageIcon, Film, Layers, Clock, RefreshCw, ExternalLink, Trash2 } from "lucide-react";
 import { WorkflowState } from "../types";
 import { listTasks, saveTask, deleteTask, queryTaskStatus, TaskRecord } from "../utils/api";
@@ -32,6 +32,19 @@ export default function Sidebar({
   const [showSaved, setShowSaved] = useState(false);
   const isDirty = apiKey !== savedKey;
   const isDemoKey = apiKey.toLowerCase().includes("demo") || apiKey.includes("••••");
+
+  // Auto-sync API key to CLI config on every valid change
+  const lastSyncedKey = useRef(apiKey);
+  useEffect(() => {
+    if (apiKey && apiKey !== lastSyncedKey.current && !isDemoKey && apiKey.length > 5) {
+      lastSyncedKey.current = apiKey;
+      fetch("/api/sync-cli-key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey }),
+      }).catch(() => {});
+    }
+  }, [apiKey, isDemoKey]);
 
   // Task history
   const [tasks, setTasks] = useState<TaskRecord[]>([]);

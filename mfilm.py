@@ -63,8 +63,25 @@ def load_config():
     ensure_dirs()
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE, "r") as f:
-            return json.load(f)
-    return {}
+            config = json.load(f)
+    else:
+        config = {}
+
+    # Auto-sync: if no valid key locally, fetch from server
+    if not config.get("api_key") or config["api_key"].startswith("test"):
+        try:
+            import requests as _req
+            resp = _req.get(f"{LOCAL_SERVER}/api/get-api-key", timeout=3)
+            if resp.ok:
+                data = resp.json()
+                if data.get("api_key"):
+                    config["api_key"] = data["api_key"]
+                    save_config(config)
+                    print("  [已从服务器同步 API 密钥]")
+        except Exception:
+            pass
+
+    return config
 
 
 def save_config(config):

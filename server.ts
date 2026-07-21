@@ -613,11 +613,20 @@ app.post("/api/tts", async (req, res) => {
 // ==========================================
 // 3. VIDEO MERGING AND POST-PROCESSING ENDPOINT
 // ==========================================
-// Only allow downloading from Agnes CDN domains to prevent SSRF
+// Only allow downloading from safe sources to prevent SSRF
 function isAllowedVideoUrl(rawUrl: string): boolean {
+  // Allow local paths (uploads/, outputs/)
+  if (rawUrl.startsWith("/uploads/") || rawUrl.startsWith("/outputs/")) {
+    return true;
+  }
   try {
     const u = new URL(rawUrl);
-    const allowed = ["apihub.agnes-ai.com", "cdn.agnes-ai.com", "storage.googleapis.com"];
+    const allowed = [
+      "apihub.agnes-ai.com",
+      "cdn.agnes-ai.com",
+      "platform-outputs.agnes-ai.space",
+      "storage.googleapis.com",
+    ];
     return u.protocol === "https:" && allowed.some((h) => u.hostname === h || u.hostname.endsWith("." + h));
   } catch {
     return false;
@@ -2086,6 +2095,19 @@ app.delete("/api/tasks/:id", (req, res) => {
 // 4.7 API KEY SYNC — share key between web UI and CLI
 // ==========================================
 const MFILM_CONFIG = path.join(os.homedir(), ".mfilm", "config.json");
+
+// GET API key — CLI calls this to auto-sync the key from server config
+app.get("/api/get-api-key", (_req, res) => {
+  try {
+    if (fs.existsSync(MFILM_CONFIG)) {
+      const config = JSON.parse(fs.readFileSync(MFILM_CONFIG, "utf-8"));
+      if (config.api_key && !config.api_key.includes("••••") && !config.api_key.toLowerCase().includes("demo")) {
+        return res.json({ api_key: config.api_key });
+      }
+    }
+  } catch {}
+  res.json({ api_key: null });
+});
 
 app.post("/api/sync-cli-key", (req, res) => {
   const { apiKey } = req.body;

@@ -452,15 +452,15 @@ export default function VideoGenerateStep({
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
-            <h2 className="text-xl font-semibold text-slate-100">3. Transform Keyframe to Video</h2>
+            <h2 className="text-xl font-semibold text-slate-100">3. 图片转视频</h2>
             <p className="text-sm text-slate-400 mt-1">
-              Animate your visual base frame. Use chain extend to go beyond 10–15s with object consistency.
+              上传图片或拖拽到提示词区域，一键生成视频
             </p>
           </div>
         </div>
         <div className="bg-orange-500/10 text-orange-400 border border-orange-500/20 px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1">
           <Sparkles className="w-3 h-3" />
-          Agnes Video v2.0
+          Agnes Video
         </div>
       </div>
 
@@ -478,114 +478,158 @@ export default function VideoGenerateStep({
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Left Column */}
+        {/* 左侧：图片和设置 */}
         <div className="lg:col-span-5 space-y-5">
-          {activeClip.imageUrl && (
+          {/* 图片上传区域 */}
+          {activeClip.imageUrl ? (
             <div className="space-y-1.5">
               <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                Reference Base Frame
-                {activeClip.chainIndex != null && activeClip.chainIndex > 0
-                  ? " (from previous segment)"
-                  : ""}
+                参考图片
               </span>
-              <div className="border border-white/5 rounded-xl overflow-hidden shadow-inner max-h-36 bg-[#1a1a1c] flex items-center justify-center">
+              <div className="border border-white/5 rounded-xl overflow-hidden shadow-inner max-h-48 bg-[#1a1a1c] flex items-center justify-center relative group">
                 <img
                   src={activeClip.imageUrl}
-                  alt="Reference keyframe"
+                  alt="参考图片"
                   referrerPolicy="no-referrer"
-                  className="w-full h-auto max-h-36 object-contain"
+                  className="w-full h-auto max-h-48 object-contain"
                 />
+                <button
+                  onClick={() => onUpdateClip({ imageUrl: "" })}
+                  className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-red-500/80 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
+                  title="移除图片"
+                >
+                  <AlertTriangle className="w-3 h-3" />
+                </button>
               </div>
+            </div>
+          ) : (
+            <div
+              className="border-2 border-dashed border-white/10 hover:border-orange-500/40 rounded-xl p-8 text-center transition-all cursor-pointer"
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const file = e.dataTransfer.files[0];
+                if (file && file.type.startsWith("image/")) {
+                  const reader = new FileReader();
+                  reader.onload = async (ev) => {
+                    const dataUrl = ev.target?.result as string;
+                    const compressed = await compressImage(dataUrl, 2048, 0.95);
+                    onUpdateClip({ imageUrl: compressed });
+                  };
+                  reader.readAsDataURL(file);
+                }
+              }}
+              onClick={() => {
+                const input = document.createElement("input");
+                input.type = "file";
+                input.accept = "image/*";
+                input.onchange = async (e) => {
+                  const file = (e.target as HTMLInputElement).files?.[0];
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onload = async (ev) => {
+                      const dataUrl = ev.target?.result as string;
+                      const compressed = await compressImage(dataUrl, 2048, 0.95);
+                      onUpdateClip({ imageUrl: compressed });
+                    };
+                    reader.readAsDataURL(file);
+                  }
+                };
+                input.click();
+              }}
+            >
+              <Film className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+              <p className="text-sm text-slate-400">点击或拖拽图片到这里</p>
+              <p className="text-xs text-slate-600 mt-1">支持 JPG、PNG 等格式</p>
             </div>
           )}
 
+          {/* 提示词 */}
           <div>
             <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-              Motion Guidance Prompt
+              运动提示词（可选）
             </label>
             <textarea
-              className="w-full h-24 px-3 py-2 bg-[#1f1f22] border border-white/10 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-orange-500/50 resize-none leading-relaxed"
+              className="w-full h-20 px-3 py-2 bg-[#1f1f22] border border-white/10 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-orange-500/50 resize-none leading-relaxed"
               value={activeClip.videoPrompt}
               onChange={(e) => onUpdateClip({ videoPrompt: e.target.value })}
-              placeholder="e.g., Camera slow pan-right, soft volumetric lighting flickering, ultra-high realism..."
+              placeholder="例如：镜头缓慢右移，柔和的光线..."
             />
           </div>
 
-          <div className="flex gap-3">
-            <div className="flex-1 space-y-2">
-              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                Speech script / Subtitles
-              </label>
-              <input
-                type="text"
-                className="w-full px-3 py-2 bg-[#1f1f22] border border-white/10 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-orange-500/50"
-                placeholder="e.g., We have successfully established base contact on the red planet."
-                value={subtitleText}
-                onChange={(e) => setSubtitleText(e.target.value)}
-              />
-              <p className="text-[10px] text-slate-500">
-                This text will be synthesized as audio voiceover and displayed as synced subtitles in the timeline step.
-              </p>
-            </div>
-            <div className="space-y-2 min-w-[90px]">
-              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                Duration
-              </label>
-              <select
-                value={videoDuration > 18 ? 18 : videoDuration}
-                onChange={(e) => setVideoDuration(Number(e.target.value))}
-                disabled={isGenerating}
-                className="w-full px-3 py-2 bg-[#1f1f22] border border-white/10 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-orange-500/50 disabled:opacity-50"
-              >
-                <option value={5}>5s</option>
-                <option value={10}>10s</option>
-                <option value={15}>15s</option>
-                <option value={18}>18s (max)</option>
-              </select>
-              <p className="text-[9px] text-slate-500">模型最长约18秒。使用链式扩展可生成更长视频。</p>
+          {/* 时长选择 */}
+          <div className="space-y-2">
+            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">
+              视频时长
+            </label>
+            <div className="grid grid-cols-5 gap-1">
+              {[5, 10, 15, 20, 25, 30].map((d) => (
+                <button
+                  key={d}
+                  onClick={() => setVideoDuration(d)}
+                  disabled={isGenerating}
+                  className={`py-1.5 text-xs font-medium rounded-lg border text-center transition-all cursor-pointer ${
+                    videoDuration === d
+                      ? "border-orange-500/40 bg-orange-500/10 text-orange-400"
+                      : "border-white/10 bg-[#1f1f22] text-slate-400 hover:border-white/20"
+                  } disabled:opacity-50`}
+                >
+                  {d}s
+                </button>
+              ))}
             </div>
           </div>
 
+          {/* 字幕（可选） */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+              字幕文字（可选）
+            </label>
+            <input
+              type="text"
+              className="w-full px-3 py-2 bg-[#1f1f22] border border-white/10 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-orange-500/50"
+              placeholder="输入字幕内容..."
+              value={subtitleText}
+              onChange={(e) => setSubtitleText(e.target.value)}
+            />
+          </div>
+
+          {/* 生成按钮 */}
           <button
             onClick={handleGenerateVideo}
             disabled={isGenerating || !activeClip.imageUrl}
-            className="w-full py-3 bg-gradient-to-r from-orange-600 to-red-600 hover:brightness-110 disabled:bg-[#1f1f22] disabled:text-slate-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest shadow-lg shadow-orange-900/40 transition-all flex items-center justify-center gap-2 cursor-pointer"
+            className="w-full py-3 bg-gradient-to-r from-orange-600 to-red-600 hover:brightness-110 disabled:bg-[#1f1f22] disabled:text-slate-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-orange-900/40 transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
             {isGenerating ? (
               <>
                 <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                Processing...
+                生成中...
               </>
             ) : (
               <>
                 <Film className="w-4 h-4 text-orange-300" />
-                Render Movie Clip
+                生成视频
               </>
             )}
           </button>
 
+          {/* 链式扩展提示 */}
           {activeClip.videoUrl && (
             <div className="p-3 bg-[#1a1a1c] border border-white/5 rounded-xl space-y-2">
               <p className="text-[10px] text-slate-400 leading-relaxed">
-                <span className="text-orange-400 font-semibold">视频链式扩展：</span>片段完成后，
-                we extract its last frame and use it as the next segment&apos;s reference image — so you can
-                stitch past the single-clip duration limit while keeping the subject consistent.
+                <span className="text-orange-400 font-semibold">链式扩展：</span>
+                视频完成后，可提取最后一帧作为下一段的参考图，实现超长视频生成。
               </p>
               {activeClip.lastFrameUrl && (
                 <div className="flex items-center gap-2">
                   <img
                     src={activeClip.lastFrameUrl}
-                    alt="Last frame"
+                    alt="最后一帧"
                     referrerPolicy="no-referrer"
                     className="w-14 h-14 object-cover rounded-lg border border-white/10"
                   />
-                  <span className="text-[10px] text-slate-500">最后一帧已就绪，可用于下一段</span>
-                </div>
-              )}
-              {isExtractingFrame && (
-                <div className="text-[10px] text-orange-400 flex items-center gap-1.5">
-                  <RefreshCw className="w-3 h-3 animate-spin" />
-                  Extracting last frame...
+                  <span className="text-[10px] text-slate-500">最后一帧已就绪</span>
                 </div>
               )}
             </div>
@@ -626,7 +670,7 @@ export default function VideoGenerateStep({
                 )}
 
                 <p className="text-xs text-slate-400 leading-relaxed max-w-sm mx-auto">
-                  Agnes&apos;s video engine is generating high-definition frames with cinematic temporal flow.
+                  视频引擎正在生成高清动态画面...
                 </p>
               </div>
 
@@ -656,7 +700,7 @@ export default function VideoGenerateStep({
                 className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/10 rounded-lg font-medium text-xs flex items-center gap-1.5 transition-all cursor-pointer"
               >
                 <StopCircle className="w-3.5 h-3.5" />
-                Cancel
+                取消
               </button>
             </div>
           ) : error ? (
@@ -668,9 +712,9 @@ export default function VideoGenerateStep({
               </div>
               <div className="space-y-3 max-w-md">
                 <div className="inline-flex items-center gap-2 px-3 py-1 bg-red-500/10 text-red-400 border border-red-500/20 rounded-full text-xs font-mono">
-                  🔴 RENDER FAILED {activeJobId && `(JOB: ${activeJobId})`}
+                  🔴 生成失败 {activeJobId && `(任务: ${activeJobId})`}
                 </div>
-                <h3 className="text-base font-semibold text-slate-100">Video Synthesis Interrupted</h3>
+                <h3 className="text-base font-semibold text-slate-100">视频生成出错</h3>
                 <p className="text-xs text-red-300 leading-relaxed bg-red-950/20 border border-red-900/30 p-3 rounded-xl max-h-24 overflow-y-auto w-full">
                   {error}
                 </p>
@@ -699,10 +743,10 @@ export default function VideoGenerateStep({
 
               <button
                 onClick={handleGenerateVideo}
-                className="px-5 py-2.5 bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30 rounded-lg font-bold text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer"
+                className="px-5 py-2.5 bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30 rounded-lg font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
-                Retry Video Generation
+                重新生成
               </button>
             </div>
           ) : activeClip.videoUrl ? (

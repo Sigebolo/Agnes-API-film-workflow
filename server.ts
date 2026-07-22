@@ -621,11 +621,16 @@ function isAllowedVideoUrl(rawUrl: string): boolean {
   }
   try {
     const u = new URL(rawUrl);
+    // Allow local/LAN URLs (localhost, 127.0.0.1, 192.168.x.x, etc.)
+    const isLocal = u.hostname === "localhost" || u.hostname === "127.0.0.1"
+      || /^192\.168\./.test(u.hostname) || /^10\./.test(u.hostname) || /^172\.(1[6-9]|2\d|3[01])\./.test(u.hostname);
+    if (isLocal) return true;
     const allowed = [
       "apihub.agnes-ai.com",
       "cdn.agnes-ai.com",
       "platform-outputs.agnes-ai.space",
       "storage.googleapis.com",
+      "freeimage.host",
     ];
     return u.protocol === "https:" && allowed.some((h) => u.hostname === h || u.hostname.endsWith("." + h));
   } catch {
@@ -668,8 +673,25 @@ app.post("/api/merge", async (req, res) => {
 
       const clipFilename = `clip_${i}.mp4`;
       const clipLocalPath = path.join(tempDir, clipFilename);
-      console.log(`Downloading clip ${i}: ${clip.videoUrl}`);
-      await downloadFile(clip.videoUrl, clipLocalPath);
+
+      // Resolve full localhost/LAN URLs to local file paths (avoid HTTP round-trip)
+      let clipPath = clip.videoUrl;
+      try {
+        const u = new URL(clip.videoUrl);
+        const isLocalHost = u.hostname === "localhost" || u.hostname === "127.0.0.1" || /^192\.168\./.test(u.hostname);
+        if (isLocalHost && (u.pathname.startsWith("/uploads/") || u.pathname.startsWith("/outputs/"))) {
+          clipPath = u.pathname;
+        }
+      } catch {}
+
+      if (clipPath.startsWith("/uploads/") || clipPath.startsWith("/outputs/")) {
+        const localSrc = path.join(process.cwd(), clipPath.replace(/^\//, ""));
+        console.log(`Copying clip ${i} from local: ${localSrc}`);
+        fs.copyFileSync(localSrc, clipLocalPath);
+      } else {
+        console.log(`Downloading clip ${i}: ${clip.videoUrl}`);
+        await downloadFile(clip.videoUrl, clipLocalPath);
+      }
       localVideoPaths.push(clipLocalPath);
 
       // Track duration
@@ -1858,10 +1880,20 @@ app.post("/api/video/last-frame", async (req, res) => {
     let resolvedInput: string;
     const bareUrl = videoUrl.split("?")[0];
 
-    if (bareUrl.startsWith("/uploads/") || bareUrl.startsWith("/outputs/")) {
-      const localPath = path.join(process.cwd(), bareUrl.replace(/^\//, ""));
+    // Resolve full localhost/LAN URLs to local file paths
+    let localBare = bareUrl;
+    try {
+      const u = new URL(bareUrl);
+      const isLocalHost = u.hostname === "localhost" || u.hostname === "127.0.0.1" || /^192\.168\./.test(u.hostname);
+      if (isLocalHost && (u.pathname.startsWith("/uploads/") || u.pathname.startsWith("/outputs/"))) {
+        localBare = u.pathname;
+      }
+    } catch {}
+
+    if (localBare.startsWith("/uploads/") || localBare.startsWith("/outputs/")) {
+      const localPath = path.join(process.cwd(), localBare.replace(/^\//, ""));
       if (!fs.existsSync(localPath)) {
-        return res.status(404).json({ error: `Local video not found: ${bareUrl}` });
+        return res.status(404).json({ error: `Local video not found: ${localBare}` });
       }
       resolvedInput = localPath;
     } else if (videoUrl.startsWith("http://") || videoUrl.startsWith("https://")) {

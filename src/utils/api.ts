@@ -336,14 +336,15 @@ export async function pollVideoStatusApi(
 export async function mergeClipsApi(
   clips: VideoClip[],
   lang: "zh" | "en",
-  voiceover: boolean = false
+  voiceover: boolean = false,
+  voice?: string
 ): Promise<{ videoUrl: string; subtitlesUrl: string; voiceoverUrl: string | null }> {
   const response = await fetch("/api/merge", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ clips, lang, voiceover }),
+    body: JSON.stringify({ clips, lang, voiceover, voice }),
   });
 
   if (!response.ok) {

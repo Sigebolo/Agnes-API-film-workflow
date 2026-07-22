@@ -158,8 +158,42 @@ async function downloadFile(url: string, destPath: string): Promise<void> {
   await fs.promises.writeFile(destPath, Buffer.from(buffer));
 }
 
-// Helper: Fetch TTS chunk from Google Translate TTS API
-async function fetchTtsChunk(text: string, lang: string): Promise<Buffer> {
+// Helper: Fetch TTS using Edge-TTS (Microsoft) via Python script
+const TTS_SCRIPT = path.join(process.cwd(), "tts_edge.py");
+const TTS_VOICES: Record<string, string> = {
+  "zh": "zh-female-xiaoxiao",  // Chinese female
+  "en": "en-female-jenny",      // English female
+};
+
+async function fetchTtsChunk(text: string, lang: string, voice?: string): Promise<Buffer> {
+  const { execFile } = await import("child_process");
+  const { promisify } = await import("util");
+  const execFileAsync = promisify(execFile);
+
+  const voiceName = voice || TTS_VOICES[lang] || "zh-female-xiaoxiao";
+  const tmpFile = path.join(UPLOADS_DIR, `tts_${Date.now()}.mp3`);
+
+  try {
+    await execFileAsync("python", [
+      TTS_SCRIPT,
+      "--text", text,
+      "--voice", voiceName,
+      "--output", tmpFile,
+    ], { timeout: 60000 });
+
+    const buf = await fs.promises.readFile(tmpFile);
+    // Cleanup
+    fs.promises.unlink(tmpFile).catch(() => {});
+    return buf;
+  } catch (err: any) {
+    // Cleanup on error
+    fs.promises.unlink(tmpFile).catch(() => {});
+    throw new Error(`Edge-TTS failed: ${err.message}`);
+  }
+}
+
+// Legacy: Google Translate TTS (fallback)
+async function fetchTtsChunkLegacy(text: string, lang: string): Promise<Buffer> {
   const ttsLang = lang === "zh" ? "zh-CN" : "en";
   const url = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${ttsLang}&q=${encodeURIComponent(text)}`;
   
@@ -579,7 +613,7 @@ function splitTextIntoChunks(text: string, maxLen = 150): string[] {
 }
 
 app.post("/api/tts", async (req, res) => {
-  const { text, lang } = req.body;
+  const { text, lang, voice } = req.body;
   if (!text) {
     return res.status(400).json({ error: "Text parameter is required" });
   }
@@ -591,7 +625,7 @@ app.post("/api/tts", async (req, res) => {
     // Fetch chunks and concatenate
     const buffers: Buffer[] = [];
     for (const chunk of chunks) {
-      const buf = await fetchTtsChunk(chunk, ttsLang);
+      const buf = await fetchTtsChunk(chunk, ttsLang, voice);
       buffers.push(buf);
     }
 
@@ -608,6 +642,26 @@ app.post("/api/tts", async (req, res) => {
     console.error("TTS generation error:", error);
     res.status(500).json({ error: error.message || "Failed to generate TTS audio" });
   }
+});
+
+// List available TTS voices
+app.get("/api/tts/voices", (_req, res) => {
+  res.json({
+    voices: [
+      { id: "zh-female-xiaoxiao", name: "晓晓 (女)", lang: "zh", gender: "female" },
+      { id: "zh-female-xiaoyi", name: "晓艺 (女)", lang: "zh", gender: "female" },
+      { id: "zh-male-yunjian", name: "云健 (男)", lang: "zh", gender: "male" },
+      { id: "zh-male-yunxi", name: "云希 (男)", lang: "zh", gender: "male" },
+      { id: "zh-female-xiaohan", name: "晓涵 (女)", lang: "zh", gender: "female" },
+      { id: "zh-female-xiaomeng", name: "晓梦 (女)", lang: "zh", gender: "female" },
+      { id: "en-female-jenny", name: "Jenny (F)", lang: "en", gender: "female" },
+      { id: "en-female-aria", name: "Aria (F)", lang: "en", gender: "female" },
+      { id: "en-male-guy", name: "Guy (M)", lang: "en", gender: "male" },
+      { id: "en-male-brian", name: "Brian (M)", lang: "en", gender: "male" },
+      { id: "en-female-sara", name: "Sara (F)", lang: "en", gender: "female" },
+      { id: "en-male-tony", name: "Tony (M)", lang: "en", gender: "male" },
+    ]
+  });
 });
 
 // ==========================================
@@ -639,7 +693,7 @@ function isAllowedVideoUrl(rawUrl: string): boolean {
 }
 
 app.post("/api/merge", async (req, res) => {
-  const { clips, lang, voiceover = false } = req.body;
+  const { clips, lang, voiceover = false, voice } = req.body;
   if (!clips || !Array.isArray(clips) || clips.length === 0) {
     return res.status(400).json({ error: "Invalid clips list provided" });
   }
@@ -753,7 +807,7 @@ app.post("/api/merge", async (req, res) => {
 
         const buffers: Buffer[] = [];
         for (const chunk of chunks) {
-          const buf = await fetchTtsChunk(chunk, ttsLang);
+          const buf = await fetchTtsChunk(chunk, ttsLang, voice);
           buffers.push(buf);
         }
 

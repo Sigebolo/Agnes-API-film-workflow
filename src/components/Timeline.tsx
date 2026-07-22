@@ -29,6 +29,7 @@ export default function Timeline({
 }: TimelineProps) {
   const [lang, setLang] = useState<"zh" | "en">("zh");
   const [voiceover, setVoiceover] = useState(false);
+  const [selectedVoice, setSelectedVoice] = useState("zh-female-xiaoxiao");
   const [error, setError] = useState<string | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);

@@ -639,7 +639,7 @@ function isAllowedVideoUrl(rawUrl: string): boolean {
 }
 
 app.post("/api/merge", async (req, res) => {
-  const { clips, lang } = req.body;
+  const { clips, lang, voiceover = false } = req.body;
   if (!clips || !Array.isArray(clips) || clips.length === 0) {
     return res.status(400).json({ error: "Invalid clips list provided" });
   }
@@ -744,9 +744,9 @@ app.post("/api/merge", async (req, res) => {
     let hasAudio = false;
     let finalAudioUrl: string | null = null;
 
-    // Step 4: Generate voiceover audio if any subtitles exist
+    // Step 4: Generate voiceover audio only if voiceover is enabled and subtitles exist
     const fullText = clips.map(c => c.subtitle || "").filter(Boolean).join(" ");
-    if (fullText.trim()) {
+    if (voiceover && fullText.trim()) {
       try {
         const ttsLang = lang || "zh";
         const chunks = splitTextIntoChunks(fullText);

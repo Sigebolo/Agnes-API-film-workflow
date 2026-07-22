@@ -28,6 +28,7 @@ export default function Timeline({
   onUpdateState,
 }: TimelineProps) {
   const [lang, setLang] = useState<"zh" | "en">("zh");
+  const [voiceover, setVoiceover] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
@@ -160,7 +161,7 @@ export default function Timeline({
     setError(null);
 
     try {
-      const response = await mergeClipsApi(validClips, lang);
+      const response = await mergeClipsApi(validClips, lang, voiceover);
       onUpdateState({
         mergedVideoUrl: response.videoUrl,
         mergedSubtitlesUrl: response.subtitlesUrl,
@@ -375,36 +376,56 @@ export default function Timeline({
           <div className="bg-[#1a1a1c] border border-white/5 rounded-2xl p-5 space-y-4">
             <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
               <Volume2 className="w-4 h-4 text-orange-500" />
-              配音与字幕设置
+              Voiceover & Subtitles
             </h3>
 
-            <div className="space-y-3">
-              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                配音语言
-              </label>
-              <div className="grid grid-cols-1 gap-2">
-                <button
-                  onClick={() => setLang("zh")}
-                  className={`py-2 text-xs font-medium rounded-xl border text-center transition-all cursor-pointer ${
-                    lang === "zh"
-                      ? "border-orange-500/40 bg-orange-500/10 text-orange-400 font-bold"
-                      : "border-white/10 bg-[#1f1f22] text-slate-400 hover:border-white/20"
+            {/* Voiceover toggle */}
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-slate-400">Enable Voiceover</label>
+              <button
+                onClick={() => setVoiceover(!voiceover)}
+                className={`relative w-10 h-5 rounded-full transition-colors cursor-pointer ${
+                  voiceover ? "bg-orange-500" : "bg-slate-700"
+                }`}
+              >
+                <div
+                  className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                    voiceover ? "translate-x-5" : "translate-x-0.5"
                   }`}
-                >
-                  中文配音
-                </button>
-                <button
-                  onClick={() => setLang("en")}
-                  className={`py-2 text-xs font-medium rounded-xl border text-center transition-all cursor-pointer ${
-                    lang === "en"
-                      ? "border-orange-500/40 bg-orange-500/10 text-orange-400 font-bold"
-                      : "border-white/10 bg-[#1f1f22] text-slate-400 hover:border-white/20"
-                  }`}
-                >
-                  英文配音
-                </button>
-              </div>
+                />
+              </button>
             </div>
+
+            {/* Language selection - only show when voiceover is enabled */}
+            {voiceover && (
+              <div className="space-y-3">
+                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  Voiceover Language
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setLang("zh")}
+                    className={`py-2 text-xs font-medium rounded-xl border text-center transition-all cursor-pointer ${
+                      lang === "zh"
+                        ? "border-orange-500/40 bg-orange-500/10 text-orange-400 font-bold"
+                        : "border-white/10 bg-[#1f1f22] text-slate-400 hover:border-white/20"
+                    }`}
+                  >
+                    中文
+                  </button>
+                  <button
+                    onClick={() => setLang("en")}
+                    className={`py-2 text-xs font-medium rounded-xl border text-center transition-all cursor-pointer ${
+                      lang === "en"
+                        ? "border-orange-500/40 bg-orange-500/10 text-orange-400 font-bold"
+                        : "border-white/10 bg-[#1f1f22] text-slate-400 hover:border-white/20"
+                    }`}
+                  >
+                    English
+                  </button>
+                </div>
+              </div>
+            )}
 
             <button
               onClick={handleCompile}
@@ -414,19 +435,19 @@ export default function Timeline({
               {state.isMerging ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                  正在合并视频...
+                  Merging videos...
                 </>
               ) : (
                 <>
                   <Sparkles className="w-4 h-4 text-orange-300" />
-                  合并、配音、导出完整视频
+                  {voiceover ? "Merge & Export with Voiceover" : "Merge & Export Video"}
                 </>
               )}
             </button>
 
             {clips.filter(c => c.videoUrl).length === 0 && (
               <p className="text-[10px] text-slate-500 text-center">
-                请为上方的片段生成或粘贴视频 URL 以启用编译。
+                Generate or paste video URLs for clips above to enable compilation.
               </p>
             )}
           </div>

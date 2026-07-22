@@ -483,9 +483,32 @@ export default function VideoGenerateStep({
           {/* 图片上传区域 */}
           {activeClip.imageUrl ? (
             <div className="space-y-1.5">
-              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                参考图片
-              </span>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  参考图片
+                </span>
+                <label className="text-xs text-orange-400 hover:text-orange-300 cursor-pointer flex items-center gap-1">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onload = async (ev) => {
+                          const dataUrl = ev.target?.result as string;
+                          const compressed = await compressImage(dataUrl, 2048, 0.95);
+                          onUpdateClip({ imageUrl: compressed });
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                  />
+                  <RefreshCw className="w-3 h-3" />
+                  更换图片
+                </label>
+              </div>
               <div className="border border-white/5 rounded-xl overflow-hidden shadow-inner max-h-48 bg-[#1a1a1c] flex items-center justify-center relative group">
                 <img
                   src={activeClip.imageUrl}
@@ -504,7 +527,7 @@ export default function VideoGenerateStep({
             </div>
           ) : (
             <div
-              className="border-2 border-dashed border-white/10 hover:border-orange-500/40 rounded-xl p-8 text-center transition-all cursor-pointer"
+              className="border-2 border-dashed border-orange-500/30 hover:border-orange-500/60 rounded-xl p-8 text-center transition-all cursor-pointer bg-orange-500/5"
               onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
               onDrop={(e) => {
                 e.preventDefault();
@@ -539,9 +562,12 @@ export default function VideoGenerateStep({
                 input.click();
               }}
             >
-              <Film className="w-10 h-10 text-slate-600 mx-auto mb-3" />
-              <p className="text-sm text-slate-400">点击或拖拽图片到这里</p>
-              <p className="text-xs text-slate-600 mt-1">支持 JPG、PNG 等格式</p>
+              <div className="w-16 h-16 mx-auto mb-3 rounded-full bg-orange-500/10 flex items-center justify-center">
+                <Plus className="w-8 h-8 text-orange-400" />
+              </div>
+              <p className="text-sm font-medium text-slate-300">点击上传图片</p>
+              <p className="text-xs text-slate-500 mt-1">或拖拽图片到这里</p>
+              <p className="text-xs text-slate-600 mt-2">支持 JPG、PNG、WebP 格式</p>
             </div>
           )}
 

@@ -563,6 +563,131 @@ def cmd_logo(args):
     print(f"[Logo] 完成！文件保存在: {output_dir}")
 
 
+def cmd_merge(args):
+    """Merge multiple video files into one using ffmpeg."""
+    import subprocess
+
+    files = args.files
+    if len(files) < 2:
+        print("[错误] 需要至少两个视频文件来合并")
+        sys.exit(1)
+
+    # Validate all files exist
+    for f in files:
+        if not os.path.exists(f):
+            print(f"[错误] 文件不存在: {f}")
+            sys.exit(1)
+
+    # Output path
+    output = args.output or f"merged_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+
+    # Create temp file list for ffmpeg concat
+    temp_dir = os.path.join(os.path.dirname(output) or ".", ".mfilm_temp")
+    os.makedirs(temp_dir, exist_ok=True)
+    list_file = os.path.join(temp_dir, "concat_list.txt")
+
+    with open(list_file, "w", encoding="utf-8") as f:
+        for video_file in files:
+            # Use forward slashes for ffmpeg compatibility
+            abs_path = os.path.abspath(video_file).replace("\\", "/")
+            f.write(f"file '{abs_path}'\n")
+
+    print(f"[Merge] 合并 {len(files)} 个视频...")
+    for i, f in enumerate(files):
+        print(f"  {i+1}. {os.path.basename(f)}")
+
+    # Step 1: Concat videos
+    concat_cmd = [
+        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+        "-i", list_file, "-c", "copy", output
+    ]
+
+    try:
+        subprocess.run(concat_cmd, check=True, capture_output=True, text=True)
+        print(f"[Merge] 视频合并完成: {output}")
+    except subprocess.CalledProcessError as e:
+        print(f"[错误] FFmpeg 合并失败: {e.stderr}")
+        sys.exit(1)
+    except FileNotFoundError:
+        print("[错误] 未找到 ffmpeg，请先安装: https://ffmpeg.org/download.html")
+        sys.exit(1)
+
+    # Step 2: Add subtitles if provided
+    if args.subtitles and os.path.exists(args.subtitles):
+        sub_output = output.replace(".mp4", "_sub.mp4")
+        sub_cmd = [
+            "ffmpeg", "-y", "-i", output, "-i", args.subtitles,
+            "-c:v", "copy", "-c:s", "mov_text", sub_output
+        ]
+        try:
+            subprocess.run(sub_cmd, check=True, capture_output=True, text=True)
+            os.replace(sub_output, output)
+            print(f"[Merge] 字幕已添加")
+        except Exception as e:
+            print(f"[警告] 添加字幕失败: {e}")
+
+    # Step 3: Generate voiceover if enabled
+    if args.voiceover:
+        print(f"[Merge] 生成配音 ({args.lang})...")
+        # Extract subtitles text for TTS
+        voiceover_cmd = [
+            "ffmpeg", "-y", "-i", output,
+            "-map", "0:s:0?",  # Try to extract subtitles
+            os.path.join(temp_dir, "subs.srt")
+        ]
+        try:
+            subprocess.run(voiceover_cmd, capture_output=True, text=True)
+            # Read subtitle text
+            srt_path = os.path.join(temp_dir, "subs.srt")
+            if os.path.exists(srt_path):
+                with open(srt_path, "r", encoding="utf-8") as f:
+                    srt_content = f.read()
+                # Parse text from SRT
+                import re
+                texts = re.findall(r'\d+\n\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3}\n(.+?)(?:\n\n|\n$)', srt_content, re.DOTALL)
+                full_text = " ".join(texts).strip()
+                if full_text:
+                    # Use Google Translate TTS
+                    tts_lang = "zh-CN" if args.lang == "zh" else "en"
+                    tts_url = f"https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl={tts_lang}&q={full_text}"
+                    voice_file = os.path.join(temp_dir, "voiceover.mp3")
+
+                    tts_cmd = [
+                        "ffmpeg", "-y", "-i", tts_url,
+                        "-headers", "User-Agent: Mozilla/5.0\r\n",
+                        voice_file
+                    ]
+                    subprocess.run(tts_cmd, capture_output=True, text=True)
+
+                    if os.path.exists(voice_file):
+                        # Mix voiceover with video
+                        dubbed_output = output.replace(".mp4", "_dubbed.mp4")
+                        dub_cmd = [
+                            "ffmpeg", "-y", "-i", output, "-i", voice_file,
+                            "-c:v", "copy", "-c:a", "aac",
+                            "-map", "0:v:0", "-map", "1:a:0",
+                            "-shortest", dubbed_output
+                        ]
+                        subprocess.run(dub_cmd, check=True, capture_output=True, text=True)
+                        os.replace(dubbed_output, output)
+                        print(f"[Merge] 配音完成")
+                    else:
+                        print(f"[警告] TTS 生成失败")
+        except Exception as e:
+            print(f"[警告] 配音生成失败: {e}")
+
+    # Cleanup
+    try:
+        os.remove(list_file)
+        os.rmdir(temp_dir)
+    except:
+        pass
+
+    # Report
+    size_mb = os.path.getsize(output) / (1024 * 1024)
+    print(f"\n[完成] {output} ({size_mb:.1f}MB)")
+
+
 def cmd_chain(args):
     """Execute a long video chain: generate multiple scenes sequentially,
     using each scene's last frame as the next scene's reference image."""
@@ -1362,6 +1487,14 @@ def main():
     p_chain.add_argument("--no-concat", action="store_true", help="不自动合并片段")
     p_chain.add_argument("--api-key", help="Agnes API 密钥")
 
+    # merge
+    p_merge = subparsers.add_parser("merge", help="合并多个视频文件")
+    p_merge.add_argument("files", nargs="+", help="要合并的视频文件路径（按顺序）")
+    p_merge.add_argument("--output", "-o", help="输出文件路径（默认 merged_<时间戳>.mp4）")
+    p_merge.add_argument("--voiceover", action="store_true", help="启用配音（从字幕生成语音）")
+    p_merge.add_argument("--lang", choices=["zh", "en"], default="zh", help="配音语言（默认中文）")
+    p_merge.add_argument("--subtitles", "-s", help="字幕文件路径（.srt 或 .vtt）")
+
     # logo
     p_logo = subparsers.add_parser("logo", help="生成 Logo 设计")
     p_logo.add_argument("--product", required=True, help="产品名称")
@@ -1386,6 +1519,7 @@ def main():
         "daemon": cmd_daemon,
         "chain": cmd_chain,
         "logo": cmd_logo,
+        "merge": cmd_merge,
     }
 
     commands[args.command](args)

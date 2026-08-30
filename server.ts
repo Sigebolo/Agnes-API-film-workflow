@@ -269,7 +269,7 @@ app.post("/api/analyze-character", async (req, res) => {
           "Authorization": authHeader,
         },
         body: JSON.stringify({
-          model: "agnes-2.0-flash",
+          model: "agnes-2.5-flash",
           messages: [
             {
               role: "system",
@@ -1552,7 +1552,7 @@ CRITICAL: Reply with ONLY valid JSON, no markdown, no commentary:
         "Authorization": authHeader,
       },
       body: JSON.stringify({
-        model: "agnes-2.0-flash",
+        model: "agnes-2.5-flash",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: `Generate ${count} logo design prompts for: ${product.name} - ${product.description || ""}` },
@@ -1659,7 +1659,7 @@ CRITICAL: Reply with ONLY valid JSON, no markdown:
         "Authorization": authHeader,
       },
       body: JSON.stringify({
-        model: "agnes-2.0-flash",
+        model: "agnes-2.5-flash",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: `Generate 3 marketing image prompts for: ${product.name}` },
@@ -1830,7 +1830,7 @@ Output format (JSON):
         "Authorization": authHeader,
       },
       body: JSON.stringify({
-        model: "agnes-2.0-flash",
+        model: "agnes-2.5-flash",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: `Generate a 15-second video prompt for: ${product.name} - ${adCopy}` },

@@ -31,7 +31,7 @@
    - Text-to-Image: `agnes-image-2.1-flash`
    - Img2Img: `agnes-image-2.0-flash`
    - 视频: `agnes-video-v2.0`
-   - 聊天优化: `agnes-2.0-flash`
+   - 聊天优化: `agnes-2.5-flash`
 
 4. **角色锚点生成顺序**
    - 先生成正面图 (text-to-image)

@@ -38,6 +38,17 @@ POLL_URL = f"{AGNES_API_BASE}/agnesapi?video_id="
 DNA_DIR = os.path.expanduser("~/.mfilm/dna")
 DAEMON_PID_FILE = os.path.expanduser("~/.mfilm/daemon.pid")
 
+# Global JSON output flag
+JSON_OUTPUT = False
+
+
+def output(data, human_msg=None):
+    """Output data as JSON or human-readable text."""
+    if JSON_OUTPUT:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+    elif human_msg:
+        print(human_msg)
+
 
 def ensure_dirs():
     os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
@@ -295,7 +306,8 @@ def api_request(method, url, api_key, json_data=None, timeout=300):
             resp = requests.get(url, headers=headers, timeout=timeout)
 
         if resp.status_code == 429:
-            return {"error": "rate_limited", "retry_after": 60}
+            retry_after = int(resp.headers.get("Retry-After", 60))
+            return {"error": "rate_limited", "retry_after": retry_after}
 
         if resp.status_code == 503:
             return {"error": "service_unavailable"}
@@ -312,7 +324,8 @@ def api_request(method, url, api_key, json_data=None, timeout=300):
 
 
 def submit_task(api_key: str, prompt: str, image_url: str = None,
-                duration: int = 15, label: str = None) -> dict:
+                duration: int = 15, label: str = None,
+                retry_delay: int = 60, max_retries: int = 5) -> dict:
     """Submit video generation task."""
     num_frames = align_frames(duration)
 
@@ -326,7 +339,7 @@ def submit_task(api_key: str, prompt: str, image_url: str = None,
         body["image"] = image_url
 
     # Retry on rate limit or timeout
-    for attempt in range(5):
+    for attempt in range(max_retries):
         progress = ProgressIndicator("提交中")
         progress.start()
         try:
@@ -335,14 +348,16 @@ def submit_task(api_key: str, prompt: str, image_url: str = None,
             progress.stop()
 
         if data.get("error") == "rate_limited":
-            wait = 60 * (attempt + 1)  # 60s, 120s, 180s...
-            print(f"  [速率限制，等待 {wait} 秒...]")
+            wait = data.get("retry_after", retry_delay)
+            if not JSON_OUTPUT:
+                print(f"  [Rate limited, waiting {wait}s...]")
             time.sleep(wait)
             continue
 
         if data.get("error") in ("timeout", "connection_error", "service_unavailable"):
             wait = 15 * (attempt + 1)
-            print(f"  [网络错误，等待 {wait} 秒后重试...]")
+            if not JSON_OUTPUT:
+                print(f"  [Network error, waiting {wait}s...]")
             time.sleep(wait)
             continue
 
@@ -898,6 +913,39 @@ def cmd_create(args):
         if dna.get("anchor_url") and not anchor_image:
             anchor_image = dna["anchor_url"]
 
+    # Chain-from: extract last frame from previous task
+    if hasattr(args, "chain_from") and args.chain_from:
+        prev_task = load_task(args.chain_from)
+        if not prev_task:
+            # Try to find by label
+            state = load_state()
+            for tid, info in state.get("tasks", {}).items():
+                if info.get("label") == args.chain_from:
+                    prev_task = load_task(tid)
+                    break
+
+        if prev_task and prev_task.get("local_path") and os.path.exists(prev_task["local_path"]):
+            try:
+                anchor_image = extract_last_frame(prev_task["local_path"])
+                print(f"  [Chain: extracted last frame from {prev_task.get('label', args.chain_from)}]")
+            except Exception as e:
+                print(f"  [Warning: Could not extract last frame: {e}]")
+        elif prev_task and prev_task.get("video_url"):
+            # Download video first, then extract frame
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+                tmp_path = tmp.name
+            if download_video(prev_task["video_url"], tmp_path):
+                try:
+                    anchor_image = extract_last_frame(tmp_path)
+                    print(f"  [Chain: extracted last frame from {prev_task.get('label', args.chain_from)}]")
+                except Exception as e:
+                    print(f"  [Warning: Could not extract last frame: {e}]")
+                finally:
+                    os.remove(tmp_path)
+        else:
+            print(f"  [Warning: Task {args.chain_from} has no local video or URL]")
+
     # Enhance prompt
     print(f"[Creating task: {args.label or 'untitled'}]")
     print(f"  Duration: {args.duration}s ({align_frames(args.duration)} frames)")
@@ -914,34 +962,35 @@ def cmd_create(args):
         print(f"  [Prompt enhanced]")
 
     # Submit
-    print(f"  [Submitting...]")
+    if not JSON_OUTPUT:
+        print(f"  [Submitting...]")
     result = submit_task(
         api_key=api_key,
         prompt=enhanced,
         image_url=anchor_image,
         duration=args.duration,
         label=args.label,
+        retry_delay=args.retry_delay,
+        max_retries=args.max_retries,
     )
 
     if not result["success"]:
-        print(f"  [Failed: {result['error']}]")
+        output({"error": result["error"], "video_id": None}, f"  [Failed: {result['error']}]")
         sys.exit(1)
 
     video_id = result["video_id"]
-    print(f"  [Task ID: {video_id}]")
 
-    # R1: Verify task exists on Agnes server immediately after submit
+    # R1: Soft verify - check with more retries, save task even if unverified
     resolved_id = resolve_video_id(video_id)
     verified = False
     verify_url = f"{AGNES_API_BASE}/v1/video/generations/{resolved_id}"
-    for check in range(5):
-        time.sleep(1)
+    for check in range(10):
+        time.sleep(2)
         check_data = api_request("GET", verify_url, api_key, timeout=10)
         status = check_data.get("status", "").lower()
         error = check_data.get("error", "")
-        # task_not_exist or timeout means ghost task
         if "task_not_exist" in str(error):
-            break
+            continue  # Don't break immediately, keep trying
         if status in ("queued", "not_start", "processing", "running", "completed", "success"):
             verified = True
             break
@@ -949,17 +998,7 @@ def cmd_create(args):
             verified = True
             break
 
-    if verified:
-        print(f"  [OK] Task confirmed in cloud queue")
-    else:
-        print(f"  [!] GHOST TASK: {video_id} not found on Agnes server. Marking as failed.")
-        print(f"      This task was submitted but never created. Possible causes:")
-        print(f"      - Rate limit (1 req/min) blocked creation")
-        print(f"      - Backend error during task initialization")
-        print(f"      To retry: mfilm create --prompt \"{args.prompt}\" --label \"{args.label}\"")
-        sys.exit(1)
-
-    # Save task
+    # Always save task (even if unverified)
     task_data = {
         "video_id": video_id,
         "label": args.label or "untitled",
@@ -968,7 +1007,7 @@ def cmd_create(args):
         "image_url": anchor_image,
         "duration": args.duration,
         "num_frames": result["num_frames"],
-        "status": "submitted",
+        "status": "submitted" if verified else "unverified",
         "created_at": datetime.now().isoformat(),
         "output_dir": args.output_dir,
         "dna_name": dna["name"] if dna else None,
@@ -979,15 +1018,30 @@ def cmd_create(args):
     state = load_state()
     state["tasks"][video_id] = {
         "label": args.label,
-        "status": "submitted",
+        "status": task_data["status"],
         "created_at": task_data["created_at"],
         "dna_name": dna["name"] if dna else None,
     }
     save_state(state)
 
-    # Poll if not async
-    if not args.async_mode:
-        print(f"  [Waiting for completion...]")
+    # Output result
+    output_result = {
+        "video_id": video_id,
+        "label": args.label,
+        "status": task_data["status"],
+        "duration": args.duration,
+        "verified": verified,
+        "created_at": task_data["created_at"],
+    }
+    if verified:
+        output(output_result, f"  [OK] Task ID: {video_id}")
+    else:
+        output_result["warning"] = "Task saved but not verified on server. Use 'mfilm status --id' to check later."
+        output(output_result, f"  [!] Task saved (unverified): {video_id}. Check with: mfilm status --id {video_id}")
+
+    # Watch mode - auto poll
+    if args.watch and not args.async_mode:
+        print(f"  [Watching task...]")
         poll_result = poll_task(api_key, video_id, timeout=600)
 
         if poll_result["success"]:
@@ -996,7 +1050,6 @@ def cmd_create(args):
             task_data["completed_at"] = datetime.now().isoformat()
             save_task(video_id, task_data)
 
-            # Download if output_dir specified
             if args.output_dir:
                 os.makedirs(args.output_dir, exist_ok=True)
                 label = args.label or video_id[:8]
@@ -1007,16 +1060,82 @@ def cmd_create(args):
                 if download_video(poll_result["video_url"], filepath):
                     task_data["local_path"] = filepath
                     save_task(video_id, task_data)
-                    print(f"  [Done! -> {filepath}]")
+
+                    # Extract last frame if requested
+                    if hasattr(args, "extract_frame") and args.extract_frame:
+                        try:
+                            frame_path = extract_last_frame(filepath)
+                            task_data["last_frame"] = frame_path
+                            save_task(video_id, task_data)
+                            output({"status": "completed", "video_id": video_id, "local_path": filepath, "last_frame": frame_path},
+                                   f"  [Done! -> {filepath}]\n  [Last frame: {frame_path}]")
+                        except Exception as e:
+                            output({"status": "completed", "video_id": video_id, "local_path": filepath},
+                                   f"  [Done! -> {filepath}]\n  [Warning: Could not extract frame: {e}]")
+                    else:
+                        output({"status": "completed", "video_id": video_id, "local_path": filepath},
+                               f"  [Done! -> {filepath}]")
                 else:
-                    print(f"  [Done! URL: {poll_result['video_url']}]")
+                    output({"status": "completed", "video_id": video_id, "video_url": poll_result["video_url"]},
+                           f"  [Done! URL: {poll_result['video_url']}]")
             else:
-                print(f"  [Done! URL: {poll_result['video_url']}]")
+                output({"status": "completed", "video_id": video_id, "video_url": poll_result["video_url"]},
+                       f"  [Done! URL: {poll_result['video_url']}]")
         else:
             task_data["status"] = "failed"
             task_data["error"] = poll_result["error"]
             save_task(video_id, task_data)
-            print(f"  [Failed: {poll_result['error']}]")
+            output({"status": "failed", "video_id": video_id, "error": poll_result["error"]},
+                   f"  [Failed: {poll_result['error']}]")
+            sys.exit(1)
+
+    elif not args.async_mode and not args.watch:
+        print(f"  [Waiting for completion...]")
+        poll_result = poll_task(api_key, video_id, timeout=600)
+
+        if poll_result["success"]:
+            task_data["status"] = "completed"
+            task_data["video_url"] = poll_result["video_url"]
+            task_data["completed_at"] = datetime.now().isoformat()
+            save_task(video_id, task_data)
+
+            if args.output_dir:
+                os.makedirs(args.output_dir, exist_ok=True)
+                label = args.label or video_id[:8]
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"{label}_{timestamp}.mp4"
+                filepath = os.path.join(args.output_dir, filename)
+
+                if download_video(poll_result["video_url"], filepath):
+                    task_data["local_path"] = filepath
+                    save_task(video_id, task_data)
+
+                    # Extract last frame if requested
+                    if hasattr(args, "extract_frame") and args.extract_frame:
+                        try:
+                            frame_path = extract_last_frame(filepath)
+                            task_data["last_frame"] = frame_path
+                            save_task(video_id, task_data)
+                            output({"status": "completed", "video_id": video_id, "local_path": filepath, "last_frame": frame_path},
+                                   f"  [Done! -> {filepath}]\n  [Last frame: {frame_path}]")
+                        except Exception as e:
+                            output({"status": "completed", "video_id": video_id, "local_path": filepath},
+                                   f"  [Done! -> {filepath}]\n  [Warning: Could not extract frame: {e}]")
+                    else:
+                        output({"status": "completed", "video_id": video_id, "local_path": filepath},
+                               f"  [Done! -> {filepath}]")
+                else:
+                    output({"status": "completed", "video_id": video_id, "video_url": poll_result["video_url"]},
+                           f"  [Done! URL: {poll_result['video_url']}]")
+            else:
+                output({"status": "completed", "video_id": video_id, "video_url": poll_result["video_url"]},
+                       f"  [Done! URL: {poll_result['video_url']}]")
+        else:
+            task_data["status"] = "failed"
+            task_data["error"] = poll_result["error"]
+            save_task(video_id, task_data)
+            output({"status": "failed", "video_id": video_id, "error": poll_result["error"]},
+                   f"  [Failed: {poll_result['error']}]")
             sys.exit(1)
 
 
@@ -1029,54 +1148,140 @@ def cmd_status(args):
         # Single task
         task = load_task(args.id)
         if not task:
-            print(f"[Task not found: {args.id}]")
+            output({"error": "not_found", "task_id": args.id}, f"[Task not found: {args.id}]")
             sys.exit(1)
 
-        print(f"\n[Task: {task.get('label', 'untitled')}]")
-        print(f"  ID: {task['video_id']}")
-        print(f"  Status: {task['status']}")
-        print(f"  Duration: {task.get('duration', '?')}s")
-        print(f"  Created: {task.get('created_at', '?')}")
-
-        if task.get("video_url"):
-            print(f"  URL: {task['video_url']}")
-        if task.get("local_path"):
-            print(f"  Local: {task['local_path']}")
-        if task.get("error"):
-            print(f"  Error: {task['error']}")
-
         # Live check if API key available
-        if api_key and task["status"] not in ("completed", "failed"):
-            print(f"\n  [Checking live status...]")
+        live_status = None
+        live_progress = 0
+        if api_key and task["status"] not in ("completed", "failed", "synced"):
             resolved = resolve_video_id(args.id)
             data = api_request("GET", f"{POLL_URL}{resolved}", api_key, timeout=30)
-            status = data.get("status", "unknown")
-            progress = data.get("progress", 0)
-            bar = render_bar(progress)
-            print(f"  Live: {status} {bar}")
+            live_status = data.get("status", "unknown")
+            live_progress = data.get("progress", 0)
 
-    elif args.all:
-        # All tasks
+        result = {
+            "label": task.get("label", "untitled"),
+            "video_id": task["video_id"],
+            "status": live_status or task["status"],
+            "progress": live_progress,
+            "duration": task.get("duration"),
+            "created_at": task.get("created_at"),
+            "dna_name": task.get("dna_name"),
+        }
+        if task.get("video_url"):
+            result["video_url"] = task["video_url"]
+        if task.get("local_path"):
+            result["local_path"] = task["local_path"]
+        if task.get("error"):
+            result["error"] = task["error"]
+
+        output(result)
+        if not JSON_OUTPUT:
+            print(f"\n[Task: {result['label']}]")
+            print(f"  ID: {result['video_id']}")
+            print(f"  Status: {result['status']}")
+            if live_progress > 0:
+                bar = render_bar(live_progress)
+                print(f"  Progress: {bar}")
+            print(f"  Duration: {result.get('duration', '?')}s")
+            print(f"  Created: {result.get('created_at', '?')}")
+            if result.get("video_url"):
+                print(f"  URL: {result['video_url']}")
+            if result.get("local_path"):
+                print(f"  Local: {result['local_path']}")
+            if result.get("error"):
+                print(f"  Error: {result['error']}")
+
+    elif args.all or args.filter:
+        # All tasks or filtered
+        state = load_state()
+        tasks = state.get("tasks", {})
+
+        # Apply filter
+        if args.filter:
+            tasks = {k: v for k, v in tasks.items() if v.get("status") == args.filter}
+
+        # Sort by created_at descending, limit
+        sorted_tasks = sorted(tasks.items(), key=lambda x: x[1].get("created_at", ""), reverse=True)
+        if not args.all and args.limit:
+            sorted_tasks = sorted_tasks[:args.limit]
+
+        if not sorted_tasks:
+            output({"tasks": [], "count": 0}, "[No tasks found]")
+            return
+
+        result = []
+        for tid, info in sorted_tasks:
+            item = {
+                "video_id": tid,
+                "label": info.get("label", "untitled"),
+                "status": info.get("status", "unknown"),
+                "created_at": info.get("created_at"),
+            }
+            if args.verbose:
+                item["duration"] = info.get("duration")
+                item["dna_name"] = info.get("dna_name")
+                if info.get("video_url"):
+                    item["video_url"] = info["video_url"]
+                if info.get("local_path"):
+                    item["local_path"] = info["local_path"]
+                if info.get("error"):
+                    item["error"] = info["error"]
+            result.append(item)
+
+        output({"tasks": result, "count": len(result)})
+        if not JSON_OUTPUT:
+            print(f"\n[Found {len(result)} task(s)]\n")
+            if args.verbose:
+                print(f"{'Label':<20} {'Status':<15} {'Duration':<10} {'Created':<20} {'ID'}")
+                print("-" * 90)
+                for item in result:
+                    label = item["label"][:18]
+                    status = item["status"][:13]
+                    duration = f"{item.get('duration', '?')}s" if item.get("duration") else "?"
+                    created = item.get("created_at", "?")[:19]
+                    print(f"{label:<20} {status:<15} {duration:<10} {created:<20} {item['video_id']}")
+            else:
+                print(f"{'Label':<20} {'Status':<15} {'Created':<20} {'ID'}")
+                print("-" * 80)
+                for item in result:
+                    label = item["label"][:18]
+                    status = item["status"][:13]
+                    created = item.get("created_at", "?")[:19]
+                    print(f"{label:<20} {status:<15} {created:<20} {item['video_id']}")
+
+    else:
+        # Default: show recent 10 tasks (like --all --limit 10)
         state = load_state()
         tasks = state.get("tasks", {})
 
         if not tasks:
-            print("[No tasks found]")
+            output({"tasks": [], "count": 0}, "[No tasks found]")
             return
 
-        print(f"\n[Found {len(tasks)} task(s)]\n")
-        print(f"{'Label':<20} {'Status':<15} {'Created':<20} {'ID'}")
-        print("-" * 80)
+        sorted_tasks = sorted(tasks.items(), key=lambda x: x[1].get("created_at", ""), reverse=True)
+        sorted_tasks = sorted_tasks[:args.limit]
 
-        for tid, info in tasks.items():
-            label = (info.get("label") or "untitled")[:18]
-            status = info.get("status", "unknown")[:13]
-            created = info.get("created_at", "?")[:19]
-            print(f"{label:<20} {status:<15} {created:<20} {tid[:16]}...")
+        result = []
+        for tid, info in sorted_tasks:
+            result.append({
+                "video_id": tid,
+                "label": info.get("label", "untitled"),
+                "status": info.get("status", "unknown"),
+                "created_at": info.get("created_at"),
+            })
 
-    else:
-        print("[错误] 请指定 --all 或 --id <任务ID>")
-        sys.exit(1)
+        output({"tasks": result, "count": len(result)})
+        if not JSON_OUTPUT:
+            print(f"\n[Recent {len(result)} task(s)]\n")
+            print(f"{'Label':<20} {'Status':<15} {'Created':<20} {'ID'}")
+            print("-" * 80)
+            for item in result:
+                label = item["label"][:18]
+                status = item["status"][:13]
+                created = item.get("created_at", "?")[:19]
+                print(f"{label:<20} {status:<15} {created:<20} {item['video_id']}")
 
 
 def cmd_sync(args):
@@ -1165,48 +1370,46 @@ def cmd_dna(args):
     """Manage character DNA presets."""
     if args.dna_action == "save":
         if not args.name or not args.traits:
-            print("[错误] 需要 --name 和 --traits 参数")
+            output({"error": "missing_params"}, "[Error] --name and --traits required")
             sys.exit(1)
         data = save_dna(args.name, args.anchor or "", args.traits)
-        print(f"[DNA saved: {data['name']}]")
-        print(f"  Anchor: {data['anchor_url'] or '(none)'}")
-        print(f"  Traits: {data['traits']}")
+        output(data, f"[DNA saved: {data['name']}]\n  Anchor: {data['anchor_url'] or '(none)'}\n  Traits: {data['traits']}")
 
     elif args.dna_action == "load":
         if not args.name:
-            print("[错误] 需要 --name 参数")
+            output({"error": "missing_name"}, "[Error] --name required")
             sys.exit(1)
         dna = load_dna(args.name)
         if not dna:
-            print(f"[Not found: {args.name}]")
+            output({"error": "not_found", "name": args.name}, f"[Not found: {args.name}]")
             sys.exit(1)
-        print(f"\n[DNA: {dna['name']}]")
-        print(f"  Anchor: {dna.get('anchor_url', '(none)')}")
-        print(f"  Traits: {dna.get('traits', '(none)')}")
-        print(f"  Created: {dna.get('created_at', '?')}")
+        output(dna, f"\n[DNA: {dna['name']}]\n  Anchor: {dna.get('anchor_url', '(none)')}\n  Traits: {dna.get('traits', '(none)')}\n  Created: {dna.get('created_at', '?')}")
 
     elif args.dna_action == "list":
         presets = list_dna()
         if not presets:
-            print("[No DNA presets saved]")
+            output({"presets": [], "count": 0}, "[No DNA presets saved]")
             return
-        print(f"\n[Found {len(presets)} preset(s)]\n")
-        print(f"{'Name':<25} {'Anchor':<15} {'Traits'}")
-        print("-" * 70)
-        for p in presets:
-            name = p.get("name", "?")[:23]
-            anchor = "Yes" if p.get("anchor_url") else "No"
-            traits = (p.get("traits", "") or "")[:30]
-            print(f"{name:<25} {anchor:<15} {traits}")
+        result = [{"name": p.get("name"), "has_anchor": bool(p.get("anchor_url")), "traits": p.get("traits")} for p in presets]
+        output({"presets": result, "count": len(result)})
+        if not JSON_OUTPUT:
+            print(f"\n[Found {len(presets)} preset(s)]\n")
+            print(f"{'Name':<25} {'Anchor':<15} {'Traits'}")
+            print("-" * 70)
+            for p in presets:
+                name = p.get("name", "?")[:23]
+                anchor = "Yes" if p.get("anchor_url") else "No"
+                traits = (p.get("traits", "") or "")[:30]
+                print(f"{name:<25} {anchor:<15} {traits}")
 
     elif args.dna_action == "delete":
         if not args.name:
-            print("[错误] 需要 --name 参数")
+            output({"error": "missing_name"}, "[Error] --name required")
             sys.exit(1)
         if delete_dna(args.name):
-            print(f"[Deleted: {args.name}]")
+            output({"deleted": args.name}, f"[Deleted: {args.name}]")
         else:
-            print(f"[Not found: {args.name}]")
+            output({"error": "not_found", "name": args.name}, f"[Not found: {args.name}]")
 
 
 def cmd_daemon(args):
@@ -1371,6 +1574,71 @@ def _daemon_check_once(api_key: str, output_dir: str):
         print(f"[守护进程] 已下载 {downloaded} 个视频")
 
 
+def cmd_monitor(args):
+    """Monitor all pending tasks and auto-download completed ones. Designed for agents."""
+    config = load_config()
+    api_key = args.api_key or config.get("api_key")
+    if not api_key:
+        output({"error": "no_api_key"}, "[Error] API key not set. Run: mfilm config --api-key <key>")
+        sys.exit(1)
+
+    output_dir = args.output_dir or config.get("output_dir", "./downloads")
+    os.makedirs(output_dir, exist_ok=True)
+
+    interval = args.interval
+    print(f"[Monitor] Checking every {interval}s, output: {output_dir}")
+    print("[Monitor] Press Ctrl+C to stop\n")
+
+    while True:
+        try:
+            state = load_state()
+            tasks = state.get("tasks", {})
+            pending = {k: v for k, v in tasks.items() if v.get("status") not in ("completed", "failed", "synced")}
+
+            if not pending:
+                output({"status": "all_done", "message": "No pending tasks"}, "[Monitor] All tasks completed!")
+                break
+
+            for tid, info in pending.items():
+                resolved = resolve_video_id(tid)
+                data = api_request("GET", f"{POLL_URL}{resolved}", api_key, timeout=30)
+                status = data.get("status", "").lower()
+                progress = data.get("progress", 0)
+
+                if status in ("completed", "success"):
+                    url = data.get("video_url") or data.get("remixed_from_video_id")
+                    if url:
+                        label = info.get("label") or tid[:8]
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        filename = f"{label}_{timestamp}.mp4"
+                        filepath = os.path.join(output_dir, filename)
+
+                        if download_video(url, filepath):
+                            state["tasks"][tid]["status"] = "synced"
+                            save_state(state)
+                            task_data = load_task(tid) or {}
+                            task_data["status"] = "synced"
+                            task_data["local_path"] = filepath
+                            save_task(tid, task_data)
+
+                            result = {"video_id": tid, "label": label, "local_path": filepath, "status": "synced"}
+                            output(result, f"  [Downloaded: {label} -> {filepath}]")
+
+                elif status == "failed":
+                    state["tasks"][tid]["status"] = "failed"
+                    save_state(state)
+                    output({"video_id": tid, "status": "failed"}, f"  [Failed: {tid}]")
+
+                else:
+                    output({"video_id": tid, "status": status, "progress": progress},
+                           f"  [{tid[:16]}] {status} {render_bar(progress)}")
+
+        except Exception as e:
+            output({"error": str(e)}, f"[Monitor] Error: {e}")
+
+        time.sleep(interval)
+
+
 def cmd_batch(args):
     """Batch create from JSON file."""
     if not os.path.exists(args.file):
@@ -1427,8 +1695,12 @@ def main():
 
     subparsers = parser.add_subparsers(dest="command", help="可用命令")
 
+    # Global --json flag
+    parser.add_argument("--json", "-j", action="store_true", help="JSON 格式输出（适合 Agent 解析）")
+
     # create
     p_create = subparsers.add_parser("create", help="创建渲染任务")
+    p_create.add_argument("--json", "-j", action="store_true", help="JSON 格式输出")
     p_create.add_argument("--prompt", "-p", required=True, help="场景描述")
     p_create.add_argument("--duration", "-d", type=int, default=15, help="视频时长，单位秒（5-30）")
     p_create.add_argument("--anchor-image", "-i", help="参考图片 URL")
@@ -1437,11 +1709,20 @@ def main():
     p_create.add_argument("--output-dir", "-o", help="下载目录")
     p_create.add_argument("--api-key", help="Agnes API 密钥")
     p_create.add_argument("--async", dest="async_mode", action="store_true", help="异步模式，不等待完成")
+    p_create.add_argument("--watch", action="store_true", help="提交后自动监控进度（自动轮询+下载）")
+    p_create.add_argument("--chain-from", dest="chain_from", help="从指定任务提取最后一帧作为参考图")
+    p_create.add_argument("--extract-frame", dest="extract_frame", action="store_true", help="完成后提取最后一帧供后续使用")
+    p_create.add_argument("--retry-delay", type=int, default=60, help="限流重试等待秒数（默认 60）")
+    p_create.add_argument("--max-retries", type=int, default=5, help="最大重试次数（默认 5）")
 
     # status
     p_status = subparsers.add_parser("status", help="查看任务状态")
+    p_status.add_argument("--json", "-j", action="store_true", help="JSON 格式输出")
     p_status.add_argument("--all", "-a", action="store_true", help="显示所有任务")
     p_status.add_argument("--id", help="指定任务 ID")
+    p_status.add_argument("--filter", "-f", choices=["pending", "completed", "failed", "synced"], help="按状态筛选")
+    p_status.add_argument("--limit", "-n", type=int, default=10, help="显示最近 N 条（默认 10）")
+    p_status.add_argument("--verbose", "-v", action="store_true", help="显示完整信息")
     p_status.add_argument("--api-key", help="Agnes API 密钥")
 
     # sync
@@ -1464,6 +1745,7 @@ def main():
 
     # dna (R2)
     p_dna = subparsers.add_parser("dna", help="管理角色 DNA 预设")
+    p_dna.add_argument("--json", "-j", action="store_true", help="JSON 格式输出")
     p_dna.add_argument("dna_action", choices=["save", "load", "list", "delete"], help="操作类型")
     p_dna.add_argument("--name", "-n", help="预设名称")
     p_dna.add_argument("--anchor", "-a", help="锚点图片 URL")
@@ -1495,6 +1777,13 @@ def main():
     p_merge.add_argument("--lang", choices=["zh", "en"], default="zh", help="配音语言（默认中文）")
     p_merge.add_argument("--subtitles", "-s", help="字幕文件路径（.srt 或 .vtt）")
 
+    # monitor (new)
+    p_monitor = subparsers.add_parser("monitor", help="监控所有进行中的任务并自动下载")
+    p_monitor.add_argument("--json", "-j", action="store_true", help="JSON 格式输出")
+    p_monitor.add_argument("--interval", type=int, default=30, help="轮询间隔秒数（默认 30）")
+    p_monitor.add_argument("--output-dir", "-o", help="下载目录")
+    p_monitor.add_argument("--api-key", help="Agnes API 密钥")
+
     # logo
     p_logo = subparsers.add_parser("logo", help="生成 Logo 设计")
     p_logo.add_argument("--product", required=True, help="产品名称")
@@ -1504,6 +1793,10 @@ def main():
     p_logo.add_argument("--api-key", help="Agnes API 密钥")
 
     args = parser.parse_args()
+
+    # Set global JSON output flag
+    global JSON_OUTPUT
+    JSON_OUTPUT = args.json
 
     if not args.command:
         parser.print_help()
@@ -1520,6 +1813,7 @@ def main():
         "chain": cmd_chain,
         "logo": cmd_logo,
         "merge": cmd_merge,
+        "monitor": cmd_monitor,
     }
 
     commands[args.command](args)

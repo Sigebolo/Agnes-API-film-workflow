@@ -4,8 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from "react";
-import { Key, Megaphone, HelpCircle, AlertCircle, Sparkles, Folder, ChevronRight, Settings, Check, Save, Package, Image as ImageIcon, Film, Layers, Clock, RefreshCw, ExternalLink, Trash2 } from "lucide-react";
-import { WorkflowState } from "../types";
+import { Key, Megaphone, HelpCircle, AlertCircle, Sparkles, Folder, Settings, Check, Save, Package, Image as ImageIcon, Film, Layers, Clock, RefreshCw, ExternalLink, Trash2 } from "lucide-react";
 import { listTasks, saveTask, deleteTask, queryTaskStatus, TaskRecord } from "../utils/api";
 import { t } from "../utils/locale";
 
@@ -13,8 +12,6 @@ interface SidebarProps {
   apiKey: string;
   onChangeApiKey: (key: string) => void;
   onSaveApiKey: (key: string) => void;
-  state: WorkflowState;
-  isAdMode?: boolean;
   adStep?: string;
   outputFolder?: string | null;
 }
@@ -23,8 +20,6 @@ export default function Sidebar({
   apiKey,
   onChangeApiKey,
   onSaveApiKey,
-  state,
-  isAdMode,
   adStep,
   outputFolder,
 }: SidebarProps) {
@@ -173,8 +168,7 @@ export default function Sidebar({
         </div>
 
         {/* Ad Workflow Progress */}
-        {isAdMode && (
-          <div className="space-y-3">
+        <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
                 <Layers className="w-3.5 h-3.5 text-orange-500" />
@@ -214,8 +208,7 @@ export default function Sidebar({
                 );
               })}
             </div>
-          </div>
-        )}
+        </div>
 
         {/* Tips Card */}
         <div className="bg-[#1f1f22]/50 rounded-xl border border-white/5 p-3.5 space-y-2.5">

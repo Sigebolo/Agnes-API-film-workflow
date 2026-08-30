@@ -68,7 +68,7 @@ interface StoryboardProject {
 
 ### Step 2: AI 生成剧本 + 分镜表
 
-调用 Agnes 文本 API（`agnes-2.0-flash`），输入故事大纲，输出：
+调用 Agnes 文本 API（`agnes-2.5-flash`），输入故事大纲，输出：
 
 ```markdown
 # 剧本：《XXX》

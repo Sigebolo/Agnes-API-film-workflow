@@ -19,7 +19,7 @@ export async function optimizePromptApi(
       "Authorization": `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "agnes-2.0-flash",
+      model: "agnes-2.5-flash",
       messages: [
         {
           role: "system",

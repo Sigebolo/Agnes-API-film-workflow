@@ -104,9 +104,9 @@
   - depends: 1.1
   - **Files**: `server.ts` (modify)
   - **Do**: 在 server.ts 的 STORYBOARD API 区域之前（约第760行），添加三个端点：
-    - `POST /api/logo/generate` — 接收 product 对象，调用 agnes-2.0-flash 生成3个Logo设计提示词（每个提示词针对不同风格变体：简约/活力/高端），返回 `{prompt: string, variants: string[]}`
-    - `POST /api/product-image/generate` — 接收 product + imageUrl/textDesc，调用 agnes-2.0-flash 生成3个营销场景提示词（电商主图/社媒素材/品牌海报），返回 `{prompt: string, variants: string[]}`
-    - `POST /api/ad-video/generate-prompt` — 接收 product + imageUrl + adCopy + characterName/dialogue，调用 agnes-2.0-flash 生成视频提示词，参考 references/video-prompt-guide.md 的约束规则，返回 `{videoPrompt: string, duration: 15}`
+    - `POST /api/logo/generate` — 接收 product 对象，调用 agnes-2.5-flash 生成3个Logo设计提示词（每个提示词针对不同风格变体：简约/活力/高端），返回 `{prompt: string, variants: string[]}`
+    - `POST /api/product-image/generate` — 接收 product + imageUrl/textDesc，调用 agnes-2.5-flash 生成3个营销场景提示词（电商主图/社媒素材/品牌海报），返回 `{prompt: string, variants: string[]}`
+    - `POST /api/ad-video/generate-prompt` — 接收 product + imageUrl + adCopy + characterName/dialogue，调用 agnes-2.5-flash 生成视频提示词，参考 references/video-prompt-guide.md 的约束规则，返回 `{videoPrompt: string, duration: 15}`
     每个端点使用与现有 /api/storyboard/generate-script 相同的认证和错误处理模式。
   - **Accept**: 三个端点可调用，返回正确JSON，TypeScript 编译通过
   - **Verify**: `npx tsc --noEmit` && 启动服务器后 curl 测试

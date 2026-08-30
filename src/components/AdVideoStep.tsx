@@ -639,11 +639,11 @@ export default function AdVideoStep({
               />
             </div>
 
-            {/* Duration Selector — Agnes V2 max ~18s (441 frames @ 24fps) */}
+            {/* Duration Selector — max 15s for ad video */}
             <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-4">
               <label className="text-xs font-semibold text-slate-300 block mb-3">视频时长</label>
               <div className="flex gap-2">
-                {[5, 10, 15, 18].map((sec) => (
+                {[5, 10, 15].map((sec) => (
                   <button
                     key={sec}
                     onClick={() => setVideoDuration(sec)}
@@ -659,7 +659,7 @@ export default function AdVideoStep({
                 ))}
               </div>
               <p className="text-[10px] text-slate-500 mt-2">
-                每片段最长约18秒。如需更长广告，请生成多个片段并在时间线上合并。
+                广告时长上限 15 秒。
               </p>
             </div>
 

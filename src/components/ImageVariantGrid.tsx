@@ -111,7 +111,7 @@ function VariantCard({
                   onRegenerate();
                 }}
                 className="p-1 hover:bg-white/5 rounded transition-colors"
-                title="Regenerate"
+                title="重新生成"
               >
                 <RefreshCw className="w-3.5 h-3.5 text-slate-400 hover:text-orange-400" />
               </button>

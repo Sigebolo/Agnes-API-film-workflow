@@ -144,8 +144,8 @@ export default function DragDropZone({
             <span className="text-orange-400 font-semibold">Release to upload</span>
           ) : (
             <>
-              <span className="text-slate-300">Drag & drop image here</span>
-              <span className="text-slate-500"> or click to browse</span>
+              <span className="text-slate-300">拖放图片到此处</span>
+              <span className="text-slate-500"> 或点击浏览</span>
             </>
           )}
         </div>

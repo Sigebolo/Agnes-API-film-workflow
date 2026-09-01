@@ -28,6 +28,10 @@ export interface VideoClip {
   videoPrompt: string;
   imageUrl?: string;
   videoUrl?: string;
+  /** Last frame of this clip's video — used as reference for the next chain segment */
+  lastFrameUrl?: string;
+  /** Index in a multi-segment chain (0-based). Present when clip was created via chain extend. */
+  chainIndex?: number;
   subtitle?: string;
   duration?: number;
   voiceoverUrl?: string;

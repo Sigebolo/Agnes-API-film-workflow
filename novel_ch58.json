@@ -1,0 +1,20 @@
+[
+  {
+    "label": "CH58_01_INTOXICATION",
+    "prompt": "POV Close-up. The girl from Maoning_0 DNA. Wearing a disheveled white silk shirt, sitting in a dark luxury room. Night city lights reflected on the window. She is drinking whiskey directly from the bottle, head tilted back, eyes hazy and longing. Masterpiece, 8k.",
+    "duration": 10,
+    "strength": 0.4
+  },
+  {
+    "label": "CH58_02_THE_STRIKE",
+    "prompt": "Continuity from last frame. The girl suddenly stands up, face filled with a wild, destructive smile. She raises the empty whiskey bottle and smashes it against a marble screen. Glass shards exploding in slow motion. High emotional tension, cinematic 8k.",
+    "duration": 8,
+    "strength": 0.45
+  },
+  {
+    "label": "CH58_03_THE_FRAGMENTS",
+    "prompt": "Continuity from last frame. The girl is sitting on the floor among shimmering glass shards. Her feet are bare, a tiny red mark on her ankle. She looks directly into the camera, whispering: 'Everything must break... only you remain.' Ethereal lighting, 8k.",
+    "duration": 12,
+    "strength": 0.42
+  }
+]

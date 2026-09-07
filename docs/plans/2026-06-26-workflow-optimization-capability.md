@@ -27,11 +27,10 @@
    - 视频生成: 60 秒
    - 聊天优化: 15 秒
 
-3. **模型选择规则**
-   - Text-to-Image: `agnes-image-2.1-flash`
-   - Img2Img: `agnes-image-2.0-flash`
+3. **模型选择规则（2026-09-09 统一升级）**
+   - 图片（文生图/图生图/多图合成统一）: `agnes-image-2.5-flash`（高信息密度/构图保留，`size: 1K/2K/3K/4K` + `ratio` + `extra_body.image[]`，默认 `2K`）
    - 视频: `agnes-video-v2.0`
-   - 聊天优化: `agnes-2.5-flash`
+   - 聊天优化: `agnes-2.5-flash`（默认 `enable_thinking: budget 4096` + `image_url` 视觉输入）
 
 4. **角色锚点生成顺序**
    - 先生成正面图 (text-to-image)

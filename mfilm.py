@@ -553,21 +553,30 @@ def cmd_logo(args):
     for i, prompt in enumerate(prompts):
         print(f"  [变体 {i+1}/{len(prompts)}] 生成图片...")
         img_data = api_request("POST", f"{LOCAL_SERVER}/api/proxy/images", api_key, {
-            "model": "agnes-image-2.1-flash",
-            "prompt": prompt,
+            "model": "agnes-image-2.5-flash",
+            "prompt": f"high information density, intricate details, rich composition, {prompt}",
             "n": 1,
-            "size": "1024x1024",
+            "size": "2K",
+            "ratio": "1:1",
         })
 
         if "error" in img_data:
             print(f"  [错误] {img_data['error']}")
             continue
 
-        url = img_data.get("data", [{}])[0].get("url", "")
-        if url:
+        # Support url or b64_json (2.5)
+        data0 = img_data.get("data", [{}])[0] if isinstance(img_data.get("data"), list) and len(img_data.get("data", [])) > 0 else {}
+        b64 = data0.get("b64_json")
+        url = data0.get("url", "")
+        if b64 or url:
             filename = f"logo_{i+1}.png"
             filepath = os.path.join(output_dir, filename)
-            download_video(url, filepath)
+            if b64:
+                import base64
+                with open(filepath, "wb") as f:
+                    f.write(base64.b64decode(b64))
+            else:
+                download_video(url, filepath)
         else:
             print(f"  [变体 {i+1}] 无 URL")
 

@@ -81,22 +81,35 @@ RULES:
 export async function generateImageApi(
   apiKey: string,
   prompt: string,
-  size: string = "1024x768",
-  image?: string,
-  strength?: number
+  size: string = "2K",
+  image?: string | string[],
+  strength?: number,
+  ratio: string = "1:1"
 ): Promise<string> {
   await rateLimiter.acquire();
+  // Normalize legacy precise sizes to 1K档位
+  let normSize = size;
+  let normRatio = ratio;
+  if (size.includes("x")) {
+    // 1024x1024 -> 1K 1:1, 1024x768 -> 1K 4:3, etc. fallback to 1K
+    if (size === "1024x1024") { normSize = "1K"; normRatio = "1:1"; }
+    else if (size === "1024x768") { normSize = "1K"; normRatio = "4:3"; }
+    else if (size === "768x1024") { normSize = "1K"; normRatio = "3:4"; }
+    else { normSize = "1K"; }
+  }
+  if (normSize !== "1K" && normSize !== "2K" && normSize !== "3K" && normSize !== "4K") {
+    normSize = "2K";
+  }
   const body: Record<string, any> = {
-    model: "agnes-image-2.1-flash",
+    model: "agnes-image-2.5-flash",
     prompt,
-    size,
+    size: normSize,
+    ratio: normRatio,
   };
 
   if (image) {
-    body.image = image;
-  }
-  if (strength !== undefined) {
-    body.strength = strength;
+    const arr = Array.isArray(image) ? image : [image];
+    body.extra_body = { image: arr, response_format: "url" };
   }
 
   const response = await fetch("/api/proxy/images", {
@@ -114,7 +127,7 @@ export async function generateImageApi(
   }
 
   const data = await response.json();
-  const imageUrl = data.data?.[0]?.url;
+  const imageUrl = data.data?.[0]?.url || (data.data?.[0]?.b64_json ? `data:image/png;base64,${data.data[0].b64_json}` : null);
   if (!imageUrl) {
     throw new Error("No image URL returned from Agnes Image API.");
   }
@@ -136,9 +149,10 @@ export async function generateCharacterSheetApi(
       "Authorization": `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "agnes-image-2.1-flash",
+      model: "agnes-image-2.5-flash",
       prompt,
-      size: "1024x1024",
+      size: "1K",
+      ratio: "1:1",
     }),
   });
 
@@ -148,7 +162,7 @@ export async function generateCharacterSheetApi(
   }
 
   const data = await response.json();
-  const imageUrl = data.data?.[0]?.url;
+  const imageUrl = data.data?.[0]?.url || (data.data?.[0]?.b64_json ? `data:image/png;base64,${data.data[0].b64_json}` : null);
   if (!imageUrl) {
     throw new Error("No image URL returned from Agnes Image API.");
   }
@@ -165,17 +179,16 @@ export async function generateCharacterViewApi(
   await rateLimiter.acquire();
   const prompt = description.includes("view") ? description : `masterpiece, best quality, character reference, ${description}, white background`;
 
-  // 2.1-flash for text-to-image, 2.0-flash for img2img
-  const model = referenceImageUrl ? "agnes-image-2.0-flash" : "agnes-image-2.1-flash";
+  // 2.5 unified for t2i and i2i (composition preserve)
   const body: Record<string, any> = {
-    model,
+    model: "agnes-image-2.5-flash",
     prompt,
-    size: "1024x1024",
+    size: "1K",
+    ratio: "1:1",
   };
 
   if (referenceImageUrl) {
-    body.image = referenceImageUrl;
-    body.strength = strength || 0.6;
+    body.extra_body = { image: [referenceImageUrl], response_format: "url" };
   }
 
   const response = await fetch("/api/proxy/images", {
@@ -193,7 +206,7 @@ export async function generateCharacterViewApi(
   }
 
   const data = await response.json();
-  const imageUrl = data.data?.[0]?.url;
+  const imageUrl = data.data?.[0]?.url || (data.data?.[0]?.b64_json ? `data:image/png;base64,${data.data[0].b64_json}` : null);
   if (!imageUrl) {
     throw new Error("No image URL returned from Agnes Image API.");
   }

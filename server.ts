@@ -279,7 +279,10 @@ app.post("/api/analyze-character", async (req, res) => {
               role: "user",
               content: prompt
             }
-          ]
+          ],
+          temperature: 0.7,
+          max_tokens: 4096,
+          chat_template_kwargs: { enable_thinking: true },
         })
       });
 
@@ -438,19 +441,21 @@ app.post("/api/proxy/images", async (req, res) => {
 
     try {
       const data = JSON.parse(responseText);
+      const b64 = data.data?.[0]?.b64_json;
       const url =
         data.data?.[0]?.url ||
         data.url ||
         data.image_url ||
-        data.images?.[0]?.url;
-      if (url) {
-        // Normalize to expected shape for clients
-        if (!data.data?.[0]?.url) {
-          return res.json({ ...data, data: [{ url }] });
+        data.images?.[0]?.url ||
+        (b64 ? `data:image/png;base64,${b64}` : null);
+      if (url || b64) {
+        // Normalize to expected shape for clients (support url or b64_json)
+        if (!data.data?.[0]?.url && url) {
+          return res.json({ ...data, data: [{ url, b64_json: b64 || null }] });
         }
         return res.json(data);
       }
-      console.error("[Image API] no URL in response:", responseText.slice(0, 500));
+      console.error("[Image API] no URL/b64 in response:", responseText.slice(0, 500));
       return res.status(500).json({ error: "Invalid response: no image URL returned", raw: responseText.slice(0, 500) });
     } catch (e) {
       return res.status(500).json({ error: "Invalid response from Agnes API", raw: responseText.slice(0, 300) });
@@ -1558,7 +1563,8 @@ CRITICAL: Reply with ONLY valid JSON, no markdown, no commentary:
           { role: "user", content: `Generate ${count} logo design prompts for: ${product.name} - ${product.description || ""}` },
         ],
         temperature: 0.7,
-        max_tokens: 2500,
+        max_tokens: 4096,
+        chat_template_kwargs: { enable_thinking: true },
       }),
     });
 
@@ -1652,6 +1658,12 @@ CRITICAL: Reply with ONLY valid JSON, no markdown:
 {"prompt":"overview","variants":["ecommerce prompt","social prompt","poster prompt"]}`;
 
   try {
+    const userContent: any = hasRef && typeof imageUrl === "string" && imageUrl.startsWith("http")
+      ? [
+          { type: "text", text: `Generate 3 marketing image prompts for: ${product.name}. Reference image shows the actual product — preserve its appearance.` },
+          { type: "image_url", image_url: { url: imageUrl } },
+        ]
+      : `Generate 3 marketing image prompts for: ${product.name}`;
     const response = await fetch("https://apihub.agnes-ai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -1662,10 +1674,11 @@ CRITICAL: Reply with ONLY valid JSON, no markdown:
         model: "agnes-2.5-flash",
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: `Generate 3 marketing image prompts for: ${product.name}` },
+          { role: "user", content: userContent },
         ],
         temperature: 0.7,
-        max_tokens: 2000,
+        max_tokens: 4096,
+        chat_template_kwargs: { enable_thinking: true },
       }),
     });
 
@@ -1823,6 +1836,12 @@ Output format (JSON):
 }`;
 
   try {
+    const adUserContent: any = typeof imageUrl === "string" && imageUrl.startsWith("http")
+      ? [
+          { type: "text", text: `Generate a 15-second video prompt for: ${product.name} - ${adCopy}. Reference image shows the product — keep its appearance intact in all frames.` },
+          { type: "image_url", image_url: { url: imageUrl } },
+        ]
+      : `Generate a 15-second video prompt for: ${product.name} - ${adCopy}`;
     const response = await fetch("https://apihub.agnes-ai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -1833,10 +1852,11 @@ Output format (JSON):
         model: "agnes-2.5-flash",
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: `Generate a 15-second video prompt for: ${product.name} - ${adCopy}` },
+          { role: "user", content: adUserContent },
         ],
-        temperature: 0.7,
-        max_tokens: 1500,
+        temperature: 0.8,
+        max_tokens: 4096,
+        chat_template_kwargs: { enable_thinking: true },
       }),
     });
 

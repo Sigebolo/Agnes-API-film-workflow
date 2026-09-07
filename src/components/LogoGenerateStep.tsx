@@ -10,6 +10,7 @@ import { generateLogoApi, autoSaveImage } from "../utils/api";
 import { createToast } from "./Toast";
 import DragDropZone from "./DragDropZone";
 import ImageVariantGrid from "./ImageVariantGrid";
+import { compressImage } from "../utils/imageCompress";
 
 interface LogoGenerateStepProps {
   apiKey: string;
@@ -63,6 +64,7 @@ export default function LogoGenerateStep({
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [editedPrompts, setEditedPrompts] = useState<Record<string, string>>({});
   const [variantCount, setVariantCount] = useState(3);
+  const [logoSize, setLogoSize] = useState<"1K" | "2K" | "4K">("2K");
   const [genLogs, setGenLogs] = useState<string[]>([]);
   // Local run control — do NOT abort on unmount (StrictMode/remount was killing jobs)
   const cancelledRef = useRef(false);
@@ -112,12 +114,40 @@ export default function LogoGenerateStep({
               "Content-Type": "application/json",
               Authorization: `Bearer ${key}`,
             },
-            body: JSON.stringify({
-              model: "agnes-image-2.1-flash",
-              prompt,
-              n: 1,
-              size: "1024x1024",
-            }),
+            body: JSON.stringify(
+              await (async () => {
+                let extra: any = undefined;
+                if (referenceImage) {
+                  let refUrl: string | undefined = referenceImage;
+                  if (refUrl && !refUrl.startsWith("http")) {
+                    try {
+                      const dataUrl = refUrl.startsWith("data:") ? refUrl : `data:image/jpeg;base64,${refUrl}`;
+                      const compressed = await compressImage(dataUrl, 1024, 0.85);
+                      const up = await fetch("/api/upload-image", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ base64: compressed, name: "logo_ref" }),
+                      });
+                      const jd = await up.json().catch(() => ({}));
+                      if (jd.url) refUrl = jd.url;
+                      else refUrl = undefined;
+                    } catch {
+                      refUrl = undefined;
+                    }
+                  }
+                  if (refUrl) extra = { image: [refUrl], response_format: "url" };
+                }
+                const payload: Record<string, any> = {
+                  model: "agnes-image-2.5-flash",
+                  prompt: `high information density, intricate details, rich composition, ${prompt}`,
+                  n: 1,
+                  size: logoSize,
+                  ratio: "1:1",
+                };
+                if (extra) payload.extra_body = extra;
+                return payload;
+              })()
+            ),
             signal: controller.signal,
           });
         } finally {
@@ -148,12 +178,13 @@ export default function LogoGenerateStep({
         }
 
         const data = await response.json();
-        // Support multiple response shapes
+        // Support multiple response shapes (url + b64_json for 2.5)
         const imageUrl =
           data.data?.[0]?.url ||
           data.url ||
           data.image_url ||
-          data.images?.[0]?.url;
+          data.images?.[0]?.url ||
+          (data.data?.[0]?.b64_json ? `data:image/png;base64,${data.data[0].b64_json}` : null);
         if (!imageUrl) {
           console.error("[LogoGen] unexpected image response:", data);
           throw new Error("No image URL in response");
@@ -421,23 +452,44 @@ export default function LogoGenerateStep({
               />
             </div>
 
-            <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-4">
-              <span className="text-xs font-semibold text-slate-300 block mb-1">Variants</span>
-              <div className="flex gap-2">
-                {[3, 5].map((count) => (
-                  <button
-                    key={count}
-                    onClick={() => setVariantCount(count)}
-                    disabled={isGenerating}
-                    className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${
-                      variantCount === count
-                        ? "bg-orange-600/20 text-orange-300 border border-orange-500/30"
-                        : "bg-[#1f1f22] text-slate-400 border border-white/5 hover:bg-white/5"
-                    } disabled:opacity-50`}
-                  >
-                    {count}
-                  </button>
-                ))}
+            <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-4 space-y-3">
+              <div>
+                <span className="text-xs font-semibold text-slate-300 block mb-1">Variants</span>
+                <div className="flex gap-2">
+                  {[3, 5].map((count) => (
+                    <button
+                      key={count}
+                      onClick={() => setVariantCount(count)}
+                      disabled={isGenerating}
+                      className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${
+                        variantCount === count
+                          ? "bg-orange-600/20 text-orange-300 border border-orange-500/30"
+                          : "bg-[#1f1f22] text-slate-400 border border-white/5 hover:bg-white/5"
+                      } disabled:opacity-50`}
+                    >
+                      {count}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-semibold text-slate-300">清晰度</span>
+                  <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded">2K 默认免费</span>
+                </div>
+                <div className="flex gap-2">
+                  {(["1K", "2K", "4K"] as const).map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setLogoSize(s)}
+                      disabled={isGenerating}
+                      className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-all ${logoSize === s ? "bg-orange-600 text-white border-orange-500" : "bg-[#1f1f22] text-slate-400 border-white/5 hover:bg-white/5"} disabled:opacity-50`}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1">1:1 方形 · 2K 2048x2048 构图保留</p>
               </div>
             </div>
 

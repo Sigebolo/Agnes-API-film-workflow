@@ -101,7 +101,7 @@ interface StoryboardProject {
 
 按顺序为每个镜头生成参考图：
 - 使用 `imagePrompt` + 主人公锚点图作为参考
-- 调用 Agnes 图片 API（`agnes-image-2.1-flash`）
+ - 调用 Agnes 图片 API（`agnes-image-2.5-flash`，`size: 2K` + `ratio` + `extra_body.image[]` 多图合成，高信息密度/构图保留）
 - 显示批量生成进度
 - 用户可选择微调某个镜头的提示词后重新生成（可选，不强制）
 

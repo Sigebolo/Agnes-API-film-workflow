@@ -67,6 +67,10 @@ export default function ProductImageStep({
   const [isGenerating, setIsGenerating] = useState(false);
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [genLogs, setGenLogs] = useState<string[]>([]);
+  const [imageSize, setImageSize] = useState<"1K" | "2K" | "4K">("2K");
+  const [imageRatio, setImageRatio] = useState<string>("1:1");
+  const [highDensity, setHighDensity] = useState(true);
+  const [extraImages, setExtraImages] = useState<string[]>([]);
   const cancelledRef = useRef(false);
   const runIdRef = useRef(0);
 
@@ -111,21 +115,36 @@ export default function ProductImageStep({
     }
   };
 
+  const resolveAllPublicUrls = async (imgs: (string | undefined)[]): Promise<string[] | undefined> => {
+    const urls: string[] = [];
+    for (const img of imgs) {
+      if (!img) continue;
+      const url = await resolvePublicImageUrl(img);
+      if (url) urls.push(url);
+    }
+    return urls.length > 0 ? urls : undefined;
+  };
+
   const generateOneImage = async (
     prompt: string,
-    publicRefUrl?: string
+    publicRefUrl?: string | string[]
   ): Promise<string> => {
-    // img2img uses 2.0-flash; t2i uses 2.1-flash
-    const model = publicRefUrl ? "agnes-image-2.0-flash" : "agnes-image-2.1-flash";
+    // Unified 2.5 (composition preserve + high-density), default 2K, multi-image via extra_body
+    const finalPrompt = highDensity ? `high information density, intricate details, rich composition, ${prompt}` : prompt;
+    const refs = publicRefUrl
+      ? Array.isArray(publicRefUrl)
+        ? publicRefUrl
+        : [publicRefUrl]
+      : undefined;
     const body: Record<string, any> = {
-      model,
-      prompt,
+      model: "agnes-image-2.5-flash",
+      prompt: finalPrompt,
       n: 1,
-      size: "1024x1024",
+      size: imageSize,
+      ratio: imageRatio,
     };
-    if (publicRefUrl) {
-      body.image = publicRefUrl;
-      body.strength = 0.55;
+    if (refs && refs.length > 0) {
+      body.extra_body = { image: refs, response_format: "url" };
     }
 
     let delay = 2500;
@@ -170,7 +189,11 @@ export default function ProductImageStep({
 
         const data = await response.json();
         const imageUrl =
-          data.data?.[0]?.url || data.url || data.image_url || data.images?.[0]?.url;
+          data.data?.[0]?.url ||
+          data.url ||
+          data.image_url ||
+          data.images?.[0]?.url ||
+          (data.data?.[0]?.b64_json ? `data:image/png;base64,${data.data[0].b64_json}` : null);
         if (!imageUrl) throw new Error("No image URL in response");
         return imageUrl as string;
       } catch (err: any) {
@@ -210,9 +233,10 @@ export default function ProductImageStep({
     if (inputMode === "prompt") {
       pushLog("📡 Generating image from manual prompt...");
       try {
-        const publicRef = await resolvePublicImageUrl(sourceImage);
+        const allRefs = [sourceImage, ...extraImages].filter(Boolean) as string[];
+        const publicRefs = allRefs.length > 0 ? await resolveAllPublicUrls(allRefs) : undefined;
         if (runId !== runIdRef.current) return;
-        const imageUrl = await generateOneImage(manualPrompt, publicRef);
+        const imageUrl = await generateOneImage(manualPrompt, publicRefs);
         if (runId !== runIdRef.current) return;
         const newVariant: MarketingVariant = {
           id: `img_${Date.now()}_0`,
@@ -289,13 +313,11 @@ export default function ProductImageStep({
       }));
       setVariants(newVariants);
 
-      // Resolve public ref once for img2img
-      let publicRef: string | undefined;
-      if (sourceImage) {
-        publicRef = await resolvePublicImageUrl(sourceImage);
-      }
+      // Resolve public refs once for img2img (multi-image synthesis)
+      const allRefsRaw = [sourceImage, ...extraImages].filter(Boolean) as string[];
+      const publicRefs = allRefsRaw.length > 0 ? await resolveAllPublicUrls(allRefsRaw) : undefined;
 
-      pushLog(`🎨 Generating ${newVariants.length} images (sequential)...`);
+      pushLog(`🎨 Generating ${newVariants.length} images (sequential, ${imageSize} ${imageRatio}${highDensity ? " high-density" : ""})...`);
 
       for (let i = 0; i < newVariants.length; i++) {
         if (runId !== runIdRef.current || cancelledRef.current) {
@@ -310,7 +332,7 @@ export default function ProductImageStep({
         pushLog(`   ${variant.prompt.slice(0, 100)}${variant.prompt.length > 100 ? "…" : ""}`);
 
         try {
-          const imageUrl = await generateOneImage(variant.prompt, publicRef);
+          const imageUrl = await generateOneImage(variant.prompt, publicRefs);
           if (runId !== runIdRef.current) break;
           setVariants((prev) =>
             prev.map((v) =>
@@ -377,8 +399,9 @@ export default function ProductImageStep({
     );
     pushLog(`🔄 Regenerating ${variant.scene}...`);
     try {
-      const publicRef = sourceImage ? await resolvePublicImageUrl(sourceImage) : undefined;
-      const imageUrl = await generateOneImage(variant.prompt, publicRef);
+      const allRefsRaw = [sourceImage, ...extraImages].filter(Boolean) as string[];
+      const publicRefs = allRefsRaw.length > 0 ? await resolveAllPublicUrls(allRefsRaw) : undefined;
+      const imageUrl = await generateOneImage(variant.prompt, publicRefs);
       setVariants((prev) =>
         prev.map((v) =>
           v.id === variantId ? { ...v, imageUrl, status: "completed" } : v
@@ -476,6 +499,43 @@ export default function ProductImageStep({
               </div>
             </div>
 
+            {/* 2.5 质量设置 - 默认 2K 高密度 */}
+            <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-300">清晰度</span>
+                <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded">全部免费</span>
+              </div>
+              <div className="flex gap-2">
+                {(["1K", "2K", "4K"] as const).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setImageSize(s)}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-all ${imageSize === s ? "bg-purple-600 text-white border-purple-500" : "bg-[#1f1f22] text-slate-400 border-white/5 hover:bg-white/5"}`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+              <div>
+                <span className="text-xs font-semibold text-slate-300 block mb-2">比例</span>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {["1:1", "3:4", "4:3", "16:9", "9:16", "2:3", "3:2", "21:9"].map((r) => (
+                    <button
+                      key={r}
+                      onClick={() => setImageRatio(r)}
+                      className={`py-1.5 rounded text-[11px] font-medium border ${imageRatio === r ? "bg-purple-600/20 text-purple-300 border-purple-500/30" : "bg-[#1f1f22] text-slate-400 border-white/5"}`}
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={highDensity} onChange={(e) => setHighDensity(e.target.checked)} className="w-3.5 h-3.5 rounded border-white/20 bg-[#1f1f22] text-purple-600 focus:ring-0" />
+                <span className="text-xs text-slate-300">高密度细节（海报/复杂场景）</span>
+              </label>
+            </div>
+
             {inputMode === "upload" && (
               <div className="bg-[#1a1a1c] border border-white/10 rounded-xl p-4">
                 <span className="text-xs font-semibold text-slate-300 block mb-3">Product Image</span>
@@ -484,6 +544,50 @@ export default function ProductImageStep({
                   currentImage={sourceImage}
                   onClear={() => setSourceImage(undefined)}
                 />
+                {/* 多图合成 - 额外参考图 */}
+                <div className="mt-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[11px] font-semibold text-slate-400">额外参考图（多图合成，最多3张）</span>
+                    <span className="text-[10px] text-slate-500">{extraImages.length}/3</span>
+                  </div>
+                  {extraImages.length > 0 && (
+                    <div className="grid grid-cols-3 gap-2 mb-2">
+                      {extraImages.map((img, idx) => (
+                        <div key={idx} className="relative group rounded-lg overflow-hidden border border-white/10 aspect-square bg-[#1f1f22]">
+                          <img src={img} alt={`ref ${idx + 1}`} className="w-full h-full object-cover" />
+                          <button
+                            onClick={() => setExtraImages((prev) => prev.filter((_, i) => i !== idx))}
+                            className="absolute top-1 right-1 w-5 h-5 bg-black/60 hover:bg-red-500/80 rounded-full text-white text-[10px] flex items-center justify-center"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {extraImages.length < 3 && (
+                    <label className="block w-full py-2 rounded-lg border border-dashed border-white/10 bg-[#1f1f22] hover:bg-white/5 text-center text-xs text-slate-400 cursor-pointer transition-colors">
+                      + 添加参考图
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            const result = reader.result as string;
+                            setExtraImages((prev) => [...prev, result]);
+                          };
+                          reader.readAsDataURL(file);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                  )}
+                  <p className="text-[10px] text-slate-500 mt-1">主图 + 额外图将通过 extra_body.image 多图合成（2.5 构图保留）</p>
+                </div>
               </div>
             )}
 

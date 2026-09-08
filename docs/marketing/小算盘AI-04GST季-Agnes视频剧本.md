@@ -32,3 +32,12 @@
 - 镜4 offwork：`video_e9cdd6a6091749f3aa6b9982507368a2` ✅
 - 终稿成片：`output_04/video-04b.mp4`（58.87秒，1088x832，9.9MB，新字幕硬烧 + `小算盘04GST季终稿.srt`）
 - 交付页 `output_04/04-deliver.html` 默认播终稿版，初版保留下载对比；已 lavish 重新投屏待验收。
+
+## 英文版（2026-09-08，中文发音不达标，转英文）
+
+- 镜1 deadline：`video_b03b3511d998406fbd4ea5e2532df366` ✅
+- 镜2 nightmare：`video_a0c9a39bc9454273a5a7cb42fd5638c0` ✅
+- 镜3 fix：`video_730fd064f1b34c0bbbad3ea2bb98c907` ✅
+- 镜4 ontime：`video_fb184beab65742c59a10840fc54dfacf` ✅
+- 英文成片：`output_04/video-04en.mp4`（58.87秒，1088x832，11.3MB，英文字幕硬烧 + `GSTSeason_EN.srt`）
+- 交付页 `output_04/04-en-deliver.html` 已 lavish 投屏待验收；同演员同场景，英文约150词。

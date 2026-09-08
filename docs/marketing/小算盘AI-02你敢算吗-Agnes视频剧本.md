@@ -115,3 +115,10 @@ python mfilm.py chain --prompt "<镜1 prompt>" --prompt "<镜2 prompt>" \
   镜3 coffee `video_d151d35316eb4055af5e8acd06a93463` ✅ / 镜4 deskcoffee `video_25a4a82975384ac38af923a8d57527af` ✅
 - 成片v2：`output_02/video-02b.mp4`（58.87秒，1088x832，10.6MB，同字幕硬烧）；抽帧验证无开大、景别统一、咖啡到位。
 - 交付页 `output_02/02-deliver.html` 默认播v2，保留v1下载对比；已 lavish 重新投屏。
+
+## v3 定稿（2026-09-08，用户验收镜1吐字）
+
+- 反馈：镜1结尾"小客户"OK，但"调分类"读错 → 台词改为"改科目"。
+- 新镜1：`video_f4ad157e462f460f8841c6471737e480` ✅（同场景+慢速清晰吐字指令）
+- 成片v3：`output_02/video-02c.mp4`（58.87秒，1088x832，10.9MB，同字幕；SRT无"调分类"字样，无需改）
+- 交付页默认播v3，v1/v2保留下载对比；lavish 重新投屏；用户反馈"这版不错"。

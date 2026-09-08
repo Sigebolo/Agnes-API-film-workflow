@@ -18,9 +18,17 @@
 
 ## 执行记录（2026-09-08，已成片待验收）
 
-- 镜1 night：`video_ae5e4fc9fd7748559d808ebecbe2130c` ✅
-- 镜2 daily：`video_c6ad8602cdfa4558b1f8e47d078027b3` ✅
-- 镜3 ird：`video_8c64e678d1f1420292b39b91a192928d` ✅
-- 镜4 cta：`video_8f3bb2ca658d44bc83c373bbcd5cb90e` ✅
-- 成片：`output_04/video-04.mp4`（58.87秒，1088x832，11.1MB，中文字幕硬烧 + SRT同目录）
-- 交付页 `output_04/04-deliver.html` 已 lavish 投屏待验收。
+- 镜1 night：`video_ae5e4fc9fd7748559d808ebecbe2130c` ✅（初版，已废弃）
+- 镜2 daily：`video_c6ad8602cdfa4558b1f8e47d078027b3` ✅（初版，已废弃）
+- 镜3 ird：`video_8c64e678d1f1420292b39b91a192928d` ✅（初版，已废弃）
+- 镜4 cta：`video_8f3bb2ca658d44bc83c373bbcd5cb90e` ✅（初版，已废弃）
+- 初版成片：`output_04/video-04.mp4`（58.87秒，11.1MB）——台词被否，已废弃。
+
+## 终稿重拍（用户定稿台词：feed/周期全覆盖/邮件催收/按期清账）
+
+- 镜1 feed：`video_38764c0f46f944928e0c4f42631d121d` ✅
+- 镜2 cost：`video_0dae2c8872c44532afddcd17019de217` ✅
+- 镜3 chase：`video_ef626a5a8cd547b9b9ae7bd6cd265904` ✅
+- 镜4 offwork：`video_e9cdd6a6091749f3aa6b9982507368a2` ✅
+- 终稿成片：`output_04/video-04b.mp4`（58.87秒，1088x832，9.9MB，新字幕硬烧 + `小算盘04GST季终稿.srt`）
+- 交付页 `output_04/04-deliver.html` 默认播终稿版，初版保留下载对比；已 lavish 重新投屏待验收。

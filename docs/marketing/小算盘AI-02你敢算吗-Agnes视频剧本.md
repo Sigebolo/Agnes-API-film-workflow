@@ -105,3 +105,13 @@ python mfilm.py chain --prompt "<镜1 prompt>" --prompt "<镜2 prompt>" \
 - 镜4 cta：`video_c4a9b9ec6a0d467dac7bc32fcc308685` ✅
 - 成片：`output_02/小算盘02你敢算吗_60s.mp4`（58.87秒，1088x832，15.3MB，中文字幕硬烧 + SRT同目录）
 - 备注：单镜353帧/15秒；提交间隔触发429限流，mfilm自动60秒退避后成功；抽帧验证4镜同脸、字幕正常。
+
+## v2 重拍（2026-09-08，用户反馈4点全改）
+
+- 反馈：①镜1结尾怂脸开大 ②镜2变中等距离 ③结尾别怂脸开大 ④不自然；要求多场景 + 喝咖啡显气定神闲。
+- 改法：4镜提示词统一加 `fixed medium close-up, static camera, absolutely no zoom and no camera movement`；
+  场景改为 工位(Excel纸)/会议窗/休息区(手持咖啡)/工位(桌上咖啡杯)；表情收敛自然。
+- 新任务：镜1 desk `video_a4b2aa592b854902b7faa470a99b1fc5` ✅ / 镜2 window `video_3b0b390661294f378971fbf9c6c32976` ✅ /
+  镜3 coffee `video_d151d35316eb4055af5e8acd06a93463` ✅ / 镜4 deskcoffee `video_25a4a82975384ac38af923a8d57527af` ✅
+- 成片v2：`output_02/video-02b.mp4`（58.87秒，1088x832，10.6MB，同字幕硬烧）；抽帧验证无开大、景别统一、咖啡到位。
+- 交付页 `output_02/02-deliver.html` 默认播v2，保留v1下载对比；已 lavish 重新投屏。
